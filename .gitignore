@@ -1,61 +1,50 @@
-# Go Build and Runtime Artifacts
-# -----------------------------
-# Compiled binaries for the current project
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+out/
 *.exe
 *.dll
 *.so
 *.dylib
-*.o
-*.obj
-
-# Test coverage output
-*.out # Standard Go test coverage profile
-
-# Dependency caches and modules
-# -----------------------------
-.go/
-.gocache/
-
-# Vendor directory (if 'go mod vendor' is used)
-vendor/
 
 # Environment files
-# -----------------
-# Sensitive environment variables and local configurations
 .env
-.env.*
-!.env.example # Keep example files for reference, if you have one
-.envrc # direnv files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
 
-# Firebase Studio Specific
-# ------------------------
-# Exclude the .idx directory and its contents, used by Firebase Studio for workspace configuration.
-.idx/
-
-# Operating System and Editor Specific Files
-# ------------------------------------------
-# macOS
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Windows
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-
-# Linux
-*.swp # Vim swap files
-
-# IDE and Editor Specific Files
-# -----------------------------
-# Visual Studio Code
+# IDE files
 .vscode/
+.idea/
+*.swp
+*.swo
+*~
 
-# Logs and Temporary Files
-# ------------------------
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Ignore data folder
+data/
+sourceproc/data/
+
+# Ignore log files
 *.log
-*.tmp
-*.temp
+
+# Ignore coverage reports
+coverage/
+*.coverage
+
+# Ignore temporary files
+tmp/
 temp/
-tmp/data/
