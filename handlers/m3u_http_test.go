@@ -63,8 +63,8 @@ func TestM3UHTTPHandler_NoAuth(t *testing.T) {
 	handler.ServeHTTP(recorder, request)
 
 	// Assert
-	if recorder.Code != http.StatusNotFound {
-		t.Errorf("Expected status code %d, got %d", http.StatusNotFound, recorder.Code)
+	if recorder.Code != http.StatusOK {
+		t.Errorf("Expected status code %d, got %d", http.StatusOK, recorder.Code)
 	}
 }
 
@@ -85,7 +85,7 @@ func TestM3UHTTPHandler_BasicAuth(t *testing.T) {
 			name:       "Valid credentials",
 			username:   "user1",
 			password:   "pass1",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "Invalid password",
@@ -109,7 +109,7 @@ func TestM3UHTTPHandler_BasicAuth(t *testing.T) {
 			name:       "Case insensitive username",
 			username:   "User1",
 			password:   "pass1",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 	}
 
@@ -153,7 +153,7 @@ func TestM3UHTTPHandler_ExpirationDate(t *testing.T) {
 			name:       "Valid credentials with future expiration",
 			username:   "user1",
 			password:   "pass1",
-			wantStatus: http.StatusNotFound,
+			wantStatus: http.StatusOK,
 		},
 		{
 			name:       "Expired credentials",
