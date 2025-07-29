@@ -136,8 +136,12 @@ func (h *StreamHandler) HandleStream(
 			}()
 			if utils.IsAnM3U8Media(lbResult.Response) {
 				h.coordinator.StartHLSWriter(h.coordinator.WriterCtx, lbResult)
+				// Set the actual URL on the coordinator
+				h.coordinator.SetActualURL(lbResult.URL)
 			} else {
 				h.coordinator.StartMediaWriter(h.coordinator.WriterCtx, lbResult)
+				// Set the actual URL on the coordinator
+				h.coordinator.SetActualURL(lbResult.URL)
 			}
 		}()
 	}

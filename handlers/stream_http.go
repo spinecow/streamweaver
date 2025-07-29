@@ -60,7 +60,10 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 		return
 	}
 
-	coordinator := h.manager.GetStreamRegistry().GetOrCreateCoordinator(streamURL)
+	// Try to get the actual URL from an existing coordinator if available
+	actualURL := ""
+	// We'll get the actual URL from the load balancer result later
+	coordinator := h.manager.GetStreamRegistry().GetOrCreateCoordinator(streamURL, actualURL)
 
 	for {
 		lbResult := coordinator.GetWriterLBResult()
@@ -74,8 +77,24 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 				return
 			}
 		} else {
-			if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
-				h.logger.Logf("Existing shared buffer found for %s", streamURL)
+			// We have an existing coordinator, check if it has the same actual URL
+			if lbResult != nil && lbResult.URL != "" {
+				if coordinator.GetActualURL() == "" {
+					// Set the actual URL on the coordinator if it's not set yet
+					coordinator.SetActualURL(lbResult.URL)
+				} else if coordinator.GetActualURL() != lbResult.URL {
+					// The existing coordinator has a different actual URL, try to find or create a coordinator for this URL
+					h.logger.Logf("Existing coordinator has different actual URL, finding/creating new coordinator")
+					coordinator = h.manager.GetStreamRegistry().GetOrCreateCoordinator(streamURL, lbResult.URL)
+				} else {
+					if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
+						h.logger.Logf("Existing shared buffer found for %s with same actual URL", streamURL)
+					}
+				}
+			} else {
+				if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
+					h.logger.Logf("Existing shared buffer found for %s", streamURL)
+				}
 			}
 		}
 

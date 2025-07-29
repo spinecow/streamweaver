@@ -84,6 +84,7 @@ type StreamCoordinator struct {
 	config    *config.StreamConfig
 	cm        *store.ConcurrencyManager
 	streamID  string
+	actualURL string
 
 	InitializationMu sync.Mutex
 
@@ -94,6 +95,22 @@ type StreamCoordinator struct {
 
 	// writeSeq is an atomic counter to track the order of chunks.
 	writeSeq int64
+}
+
+// SetActualURL sets the actual stream URL for this coordinator
+func (c *StreamCoordinator) SetActualURL(url string) {
+	c.Mu.Lock()
+	defer c.Mu.Unlock()
+	if c.actualURL == "" {
+		c.actualURL = url
+	}
+}
+
+// GetActualURL returns the actual stream URL for this coordinator
+func (c *StreamCoordinator) GetActualURL() string {
+	c.Mu.RLock()
+	defer c.Mu.RUnlock()
+	return c.actualURL
 }
 
 // subscribe returns the current broadcast channel.
@@ -128,6 +145,7 @@ func NewStreamCoordinator(streamID string, config *config.StreamConfig, cm *stor
 		config:        config,
 		cm:            cm,
 		streamID:      streamID,
+		actualURL:     "", // Will be set when the first client connects
 		broadcast:     make(chan struct{}),
 		respHeaderSet: make(chan struct{}),
 	}

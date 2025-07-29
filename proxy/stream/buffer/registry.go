@@ -38,7 +38,26 @@ func NewStreamRegistry(config *config.StreamConfig, cm *store.ConcurrencyManager
 	return registry
 }
 
-func (r *StreamRegistry) GetOrCreateCoordinator(streamID string) *StreamCoordinator {
+func (r *StreamRegistry) GetOrCreateCoordinator(streamID string, actualURL string) *StreamCoordinator {
+	// First, try to find an existing coordinator by the actual URL
+	if actualURL != "" {
+		// Try to find an existing coordinator with the same actual URL
+		var foundCoord *StreamCoordinator
+		r.coordinators.Range(func(key string, coord *StreamCoordinator) bool {
+			if coord.GetActualURL() == actualURL {
+				foundCoord = coord
+				return false // Stop iteration
+			}
+			return true // Continue iteration
+		})
+		
+		if foundCoord != nil {
+			r.logger.Debugf("Found existing coordinator for actual URL: %s", actualURL)
+			return foundCoord
+		}
+	}
+
+	// If no coordinator found by actual URL, use the streamID as the key
 	coordId := streamID
 	// if !r.Unrestrict {
 	// 	streamInfo, err := sourceproc.DecodeSlug(streamID)
@@ -57,13 +76,25 @@ func (r *StreamRegistry) GetOrCreateCoordinator(streamID string) *StreamCoordina
 	// }
 
 	if coord, ok := r.coordinators.Load(coordId); ok {
+		// If we have an actual URL, set it on the existing coordinator
+		if actualURL != "" {
+			coord.SetActualURL(actualURL)
+		}
 		return coord
 	}
 
 	coord := NewStreamCoordinator(coordId, r.config, r.cm, r.logger)
+	// If we have an actual URL, set it on the new coordinator
+	if actualURL != "" {
+		coord.SetActualURL(actualURL)
+	}
 
 	actual, loaded := r.coordinators.LoadOrStore(coordId, coord)
 	if loaded {
+		// If we have an actual URL, set it on the existing coordinator
+		if actualURL != "" {
+			actual.SetActualURL(actualURL)
+		}
 		return actual
 	}
 
@@ -72,6 +103,24 @@ func (r *StreamRegistry) GetOrCreateCoordinator(streamID string) *StreamCoordina
 
 func (r *StreamRegistry) RemoveCoordinator(coordId string) {
 	r.coordinators.Delete(coordId)
+}
+
+// GetCoordinatorByActualURL returns a coordinator that matches the given actual URL
+func (r *StreamRegistry) GetCoordinatorByActualURL(actualURL string) *StreamCoordinator {
+	if actualURL == "" {
+		return nil
+	}
+	
+	var foundCoord *StreamCoordinator
+	r.coordinators.Range(func(key string, coord *StreamCoordinator) bool {
+		if coord.GetActualURL() == actualURL {
+			foundCoord = coord
+			return false // Stop iteration
+		}
+		return true // Continue iteration
+	})
+	
+	return foundCoord
 }
 
 func (r *StreamRegistry) runCleanup() {
