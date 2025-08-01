@@ -45,6 +45,9 @@ func NewDefaultLogger() *DefaultLogger {
 			logLevel = zerolog.InfoLevel
 		}
 	}
+	
+	// Apply the log level to the logger instance
+	logger = logger.Level(logLevel)
 	zerolog.SetGlobalLevel(logLevel)
 
 	return &DefaultLogger{
