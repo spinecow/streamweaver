@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -17,12 +18,35 @@ type DefaultLogger struct {
 var Default = NewDefaultLogger()
 
 func NewDefaultLogger() *DefaultLogger {
+	// Determine log format
 	var logger zerolog.Logger
 	if os.Getenv("LOG_FORMAT") == "json" {
 		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
 	} else {
 		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
 	}
+
+	// Set log level based on LOG_LEVEL environment variable
+	logLevel := zerolog.InfoLevel // default level
+	if levelStr := os.Getenv("LOG_LEVEL"); levelStr != "" {
+		switch strings.ToLower(levelStr) {
+		case "debug":
+			logLevel = zerolog.DebugLevel
+		case "info":
+			logLevel = zerolog.InfoLevel
+		case "warn":
+			logLevel = zerolog.WarnLevel
+		case "error":
+			logLevel = zerolog.ErrorLevel
+		case "fatal":
+			logLevel = zerolog.FatalLevel
+		default:
+			// If invalid level is provided, default to info
+			logLevel = zerolog.InfoLevel
+		}
+	}
+	zerolog.SetGlobalLevel(logLevel)
+
 	return &DefaultLogger{
 		logger: logger,
 		fields: make(map[string]interface{}),
@@ -154,20 +178,12 @@ func (l *DefaultLogger) Logf(format string, v ...any) {
 }
 
 func (l *DefaultLogger) Debug(format string) {
-	debug := os.Getenv("DEBUG") == "true"
-
-	if debug {
-		l.logger.Debug().Msg(safeLogf("%s", format))
-	}
+	l.logger.Debug().Msg(safeLogf("%s", format))
 }
 
 func (l *DefaultLogger) Debugf(format string, v ...any) {
-	debug := os.Getenv("DEBUG") == "true"
 	logString := fmt.Sprintf(format, v...)
-
-	if debug {
-		l.logger.Debug().Msg(safeLogf("%s", logString))
-	}
+	l.logger.Debug().Msg(safeLogf("%s", logString))
 }
 
 func (l *DefaultLogger) Error(format string) {
@@ -204,13 +220,7 @@ func (l *DefaultLogger) InfoEvent() Event {
 
 // DebugEvent implements the Logger interface for DefaultLogger
 func (l *DefaultLogger) DebugEvent() Event {
-	debug := os.Getenv("DEBUG") == "true"
-	if debug {
-		return &EventWrapper{event: l.logger.Debug()}
-	}
-	// Return a no-op event when debug is disabled
-	nopLogger := zerolog.Nop()
-	return &EventWrapper{event: nopLogger.Debug()}
+	return &EventWrapper{event: l.logger.Debug()}
 }
 
 // WarnEvent implements the Logger interface for DefaultLogger
