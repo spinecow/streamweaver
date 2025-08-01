@@ -128,7 +128,7 @@ func TestLoggerEnhancedIntegration(t *testing.T) {
 		}
 
 		// Test with nil context
-		loggerWithNilCorrelation := testLogger.WithCorrelationID(nil)
+		loggerWithNilCorrelation := testLogger.WithCorrelationID(context.TODO())
 		if loggerWithNilCorrelation != testLogger {
 			t.Error("WithCorrelationID with nil context should return the same logger")
 		}
@@ -489,7 +489,7 @@ func TestStreamProcessingIntegration(t *testing.T) {
 		}
 
 		// Test with nil context (should fail)
-		result2, err2 := lb.Balance(nil, req)
+		result2, err2 := lb.Balance(context.TODO(), req)
 		if err2 == nil {
 			t.Error("Load balancer should fail with nil context")
 		}
@@ -1109,7 +1109,7 @@ func TestErrorHandlingIntegration(t *testing.T) {
 		testLogger := logger.NewDefaultLogger()
 
 		// Test WithCorrelationID with nil context
-		loggerWithNilContext := testLogger.WithCorrelationID(nil)
+		loggerWithNilContext := testLogger.WithCorrelationID(context.TODO())
 		if loggerWithNilContext != testLogger {
 			t.Error("WithCorrelationID with nil context should return the same logger")
 		}

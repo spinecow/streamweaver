@@ -173,7 +173,7 @@ func TestStreamProcessingLoggingIntegration(t *testing.T) {
 			Msg("Testing load balancer error scenarios")
 
 		// Test with nil context
-		result2, err2 := lb.Balance(nil, req)
+		result2, err2 := lb.Balance(context.TODO(), req)
 		if err2 == nil {
 			t.Error("Load balancer should fail with nil context")
 		} else {
