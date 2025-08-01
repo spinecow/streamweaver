@@ -53,15 +53,32 @@ func (h *StreamHTTPHandler) extractStreamURL(urlPath string) string {
 
 func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *client.StreamClient) {
 	r := streamClient.Request
+	startTime := time.Now()
 
 	// Create a logger with correlation ID
 	requestLogger := h.logger.WithCorrelationID(r.Context())
 
 	streamURL := h.extractStreamURL(r.URL.Path)
 	if streamURL == "" {
-		requestLogger.Logf("Invalid m3uID for request from %s: %s", r.RemoteAddr, r.URL.Path)
+		requestLogger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("url", r.URL.String()).
+			Str("client_ip", r.RemoteAddr).
+			Str("user_agent", r.UserAgent()).
+			Str("url_path", r.URL.Path).
+			Msg("Invalid m3uID for request")
 		return
 	}
+
+	requestLogger.InfoEvent().
+		Str("component", "StreamHTTPHandler").
+		Str("method", r.Method).
+		Str("url", r.URL.String()).
+		Str("client_ip", r.RemoteAddr).
+		Str("user_agent", r.UserAgent()).
+		Str("stream_id", streamURL).
+		Msg("Processing stream request")
 
 	// Try to get the actual URL from an existing coordinator if available
 	actualURL := ""
@@ -102,7 +119,14 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 		}
 
 		exitStatus := make(chan int)
-		requestLogger.Logf("Proxying %s to %s", r.URL.Path, lbResult.URL)
+		requestLogger.InfoEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("url", r.URL.String()).
+			Str("client_ip", r.RemoteAddr).
+			Str("stream_id", streamURL).
+			Str("target_url", lbResult.URL).
+			Msg("Proxying stream request")
 
 		proxyCtx, cancel := context.WithCancel(ctx)
 		go func() {
@@ -112,10 +136,22 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 
 		select {
 		case <-ctx.Done():
-			requestLogger.Logf("Client has closed the stream: %s", r.RemoteAddr)
+			requestLogger.InfoEvent().
+				Str("component", "StreamHTTPHandler").
+				Str("client_ip", r.RemoteAddr).
+				Str("stream_id", streamURL).
+				Dur("duration", time.Since(startTime)).
+				Msg("Client has closed the stream")
 			return
 		case code := <-exitStatus:
 			if h.handleExitCodeWithLogger(code, r, requestLogger) {
+				requestLogger.InfoEvent().
+					Str("component", "StreamHTTPHandler").
+					Str("client_ip", r.RemoteAddr).
+					Str("stream_id", streamURL).
+					Int("exit_code", code).
+					Dur("duration", time.Since(startTime)).
+					Msg("Stream request completed")
 				return
 			}
 			// Otherwise, retry with a new lbResult.
@@ -123,7 +159,12 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 
 		select {
 		case <-ctx.Done():
-			requestLogger.Logf("Client has closed the stream: %s", r.RemoteAddr)
+			requestLogger.InfoEvent().
+				Str("component", "StreamHTTPHandler").
+				Str("client_ip", r.RemoteAddr).
+				Str("stream_id", streamURL).
+				Dur("duration", time.Since(startTime)).
+				Msg("Client has closed the stream during retry wait")
 			return
 		case <-time.After(500 * time.Millisecond):
 		}
@@ -142,11 +183,19 @@ func (h *StreamHTTPHandler) handleExitCodeWithLogger(code int, r *http.Request, 
 	case proxy.StatusEOF:
 		fallthrough
 	case proxy.StatusServerError:
-		requestLogger.Logf("Retrying other servers...")
+		requestLogger.InfoEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("client_ip", r.RemoteAddr).
+			Int("exit_code", code).
+			Msg("Retrying other servers")
 		return false
 	case proxy.StatusM3U8Parsed:
-		requestLogger.Debugf("Finished handling M3U8 %s request: %s", r.Method,
-			r.RemoteAddr)
+		requestLogger.DebugEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("client_ip", r.RemoteAddr).
+			Msg("Finished handling M3U8 request")
 		return true
 	case proxy.StatusM3U8ParseError:
 		requestLogger.ErrorEvent().
@@ -156,20 +205,31 @@ func (h *StreamHTTPHandler) handleExitCodeWithLogger(code int, r *http.Request, 
 			Msg("Finished handling M3U8 request but failed to parse contents")
 		return false
 	default:
-		requestLogger.Logf("Unable to write to client. Assuming stream has been closed: %s",
-			r.RemoteAddr)
+		requestLogger.InfoEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("client_ip", r.RemoteAddr).
+			Int("exit_code", code).
+			Msg("Unable to write to client. Assuming stream has been closed")
 		return true
 	}
 }
 
 func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClient) {
 	r := streamClient.Request
+	startTime := time.Now()
 
 	// Create a logger with correlation ID
 	requestLogger := h.logger.WithCorrelationID(r.Context())
 
-	requestLogger.Debugf("Received request from %s for URL: %s",
-		r.RemoteAddr, r.URL.Path)
+	requestLogger.DebugEvent().
+		Str("component", "StreamHTTPHandler").
+		Str("method", r.Method).
+		Str("url", r.URL.String()).
+		Str("client_ip", r.RemoteAddr).
+		Str("user_agent", r.UserAgent()).
+		Str("url_path", r.URL.Path).
+		Msg("Received segment request")
 
 	streamId := h.extractStreamURL(r.URL.Path)
 	if streamId == "" {
@@ -198,13 +258,24 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 	if err != nil {
 		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("segment_url", segment.URL).
+			Dur("duration", time.Since(startTime)).
 			Err(err).
-			Msg("Failed to fetch URL")
+			Msg("Failed to fetch segment URL")
 		_ = streamClient.WriteHeader(http.StatusInternalServerError)
 		_, _ = streamClient.Write([]byte(fmt.Sprintf("Failed to fetch URL: %v", err)))
 		return
 	}
 	defer resp.Body.Close()
+
+	requestLogger.InfoEvent().
+		Str("component", "StreamHTTPHandler").
+		Str("client_ip", r.RemoteAddr).
+		Str("segment_url", segment.URL).
+		Int("status_code", resp.StatusCode).
+		Dur("fetch_duration", time.Since(startTime)).
+		Msg("Successfully fetched segment")
 
 	for key, values := range resp.Header {
 		for _, value := range values {
@@ -214,15 +285,38 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	_ = streamClient.WriteHeader(resp.StatusCode)
 
-	if _, err = io.Copy(streamClient, resp.Body); err != nil {
+	bytesWritten, err := io.Copy(streamClient, resp.Body)
+	totalDuration := time.Since(startTime)
+	
+	if err != nil {
 		if isBrokenPipe(err) {
-			requestLogger.Debugf("Client disconnected (broken pipe): %v", err)
+			requestLogger.DebugEvent().
+				Str("component", "StreamHTTPHandler").
+				Str("client_ip", r.RemoteAddr).
+				Str("segment_url", segment.URL).
+				Int64("bytes_written", bytesWritten).
+				Dur("duration", totalDuration).
+				Err(err).
+				Msg("Client disconnected (broken pipe)")
 		} else {
 			requestLogger.ErrorEvent().
 				Str("component", "StreamHTTPHandler").
+				Str("client_ip", r.RemoteAddr).
+				Str("segment_url", segment.URL).
+				Int64("bytes_written", bytesWritten).
+				Dur("duration", totalDuration).
 				Err(err).
-				Msg("Error copying response body.")
+				Msg("Error copying response body")
 		}
+	} else {
+		requestLogger.InfoEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("segment_url", segment.URL).
+			Int("status_code", resp.StatusCode).
+			Int64("bytes_written", bytesWritten).
+			Dur("duration", totalDuration).
+			Msg("Segment request completed successfully")
 	}
 }
 

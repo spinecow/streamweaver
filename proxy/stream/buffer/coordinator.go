@@ -131,7 +131,13 @@ func (c *StreamCoordinator) notifySubscribers() {
 }
 
 func NewStreamCoordinator(streamID string, config *config.StreamConfig, cm *store.ConcurrencyManager, logger logger.Logger) *StreamCoordinator {
-	logger.Debug("Initializing new StreamCoordinator")
+	logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", streamID).
+		Int("buffer_size", config.SharedBufferSize).
+		Int("chunk_size", config.ChunkSize).
+		Msg("Initializing new StreamCoordinator")
+	
 	r := ring.New(config.SharedBufferSize)
 	for i := 0; i < config.SharedBufferSize; i++ {
 		r.Value = newChunkData()
@@ -152,8 +158,12 @@ func NewStreamCoordinator(streamID string, config *config.StreamConfig, cm *stor
 	atomic.StoreInt32(&coord.state, stateActive)
 	coord.LastError.Store((*ChunkData)(nil))
 
-	logger.Debugf("StreamCoordinator initialized with buffer size: %d, chunk size: %d",
-		config.SharedBufferSize, config.ChunkSize)
+	logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", streamID).
+		Int("buffer_size", config.SharedBufferSize).
+		Int("chunk_size", config.ChunkSize).
+		Msg("StreamCoordinator initialized successfully")
 	return coord
 }
 
@@ -176,28 +186,50 @@ func (c *StreamCoordinator) RegisterClient() error {
 
 	// If stream is closed but there are no clients, allow reset
 	if state != stateActive && atomic.LoadInt32(&c.ClientCount) == 0 {
-		c.logger.Debug("Resetting closed stream to active state")
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Int("previous_state", int(state)).
+			Msg("Resetting closed stream to active state")
 		atomic.StoreInt32(&c.state, stateActive)
 	}
 
 	count := atomic.AddInt32(&c.ClientCount, 1)
-	c.logger.Debugf("Client registered. Total clients: %d", count)
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Int("client_count", int(count)).
+		Msg("Client registered")
 	return nil
 }
 
 // UnregisterClient unregisters a client and cleans up resources if it was the last.
 func (c *StreamCoordinator) UnregisterClient() {
 	count := atomic.AddInt32(&c.ClientCount, -1)
-	c.logger.Logf("Client unregistered (%s). Remaining clients: %d", c.streamID, count)
+	c.logger.InfoEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Int("remaining_clients", int(count)).
+		Msg("Client unregistered")
+	
 	if count == 0 {
-		c.logger.Log("Last client unregistered, cleaning up resources")
+		c.logger.InfoEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Msg("Last client unregistered, cleaning up resources")
 		atomic.StoreInt32(&c.state, stateDraining)
 		// Signal the writer to shut down.
 		select {
 		case c.WriterChan <- struct{}{}:
-			c.logger.Debug("Sent shutdown signal to writer")
+			c.logger.DebugEvent().
+				Str("component", "StreamCoordinator").
+				Str("stream_id", c.streamID).
+				Msg("Sent shutdown signal to writer")
 		default:
-			c.logger.Debug("Writer channel already has shutdown signal")
+			c.logger.DebugEvent().
+				Str("component", "StreamCoordinator").
+				Str("stream_id", c.streamID).
+				Msg("Writer channel already has shutdown signal")
 		}
 		c.WriterRespHeader.Store(nil)
 		c.ClearBuffer()
@@ -229,14 +261,21 @@ func (c *StreamCoordinator) shouldRetry(timeout time.Duration) bool {
 // buffer back to the pool. This prevents any leaks or accidental reuse.
 func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 	if chunk == nil {
-		c.logger.Debug("Write: Received nil chunk")
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Msg("Write: Received nil chunk")
 		return false
 	}
 
 	c.Mu.Lock()
 	// If the stream isn't active, we still Must consume (reset) the chunk.
 	if atomic.LoadInt32(&c.state) != stateActive {
-		c.logger.Debug("Write: Stream not active")
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Int("state", int(atomic.LoadInt32(&c.state))).
+			Msg("Write: Stream not active")
 		c.Mu.Unlock()
 		chunk.Reset()
 		return false
@@ -244,7 +283,10 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 
 	current, ok := c.Buffer.Value.(*ChunkData)
 	if !ok || current == nil {
-		c.logger.Debug("Write: Current buffer position is nil")
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Msg("Write: Current buffer position is nil")
 		c.Mu.Unlock()
 		chunk.Reset()
 		return false
@@ -264,8 +306,20 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 	current.Status = chunk.Status
 	current.Timestamp = chunk.Timestamp
 
+	bytesWritten := 0
+	if current.Buffer != nil {
+		bytesWritten = current.Buffer.Len()
+	}
+
 	c.Buffer = c.Buffer.Next()
-	c.logger.Debug("Write: Advanced buffer position")
+	
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Int64("sequence", current.seq).
+		Int("bytes_written", bytesWritten).
+		Int("client_count", int(atomic.LoadInt32(&c.ClientCount))).
+		Msg("Buffer write completed")
 
 	// Mark error state if needed.
 	if current.Error != nil || current.Status != 0 {
@@ -273,7 +327,13 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			c.LastError.Store(current)
 		}
 		atomic.StoreInt32(&c.state, stateDraining)
-		c.logger.Debugf("Write: Setting error state: err=%v, status=%d", current.Error, current.Status)
+		c.logger.ErrorEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Int64("sequence", current.seq).
+			Int("status_code", current.Status).
+			Err(current.Error).
+			Msg("Write: Setting error state")
 	}
 	c.Mu.Unlock()
 
@@ -293,7 +353,10 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 ) {
 	c.Mu.RLock()
 	if fromPosition == nil {
-		c.logger.Debug("ReadChunks: fromPosition is nil, using current buffer")
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("stream_id", c.streamID).
+			Msg("ReadChunks: fromPosition is nil, using current buffer")
 		fromPosition = c.Buffer
 	}
 	// Check if the client's pointer is too far behind.
@@ -301,7 +364,13 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 		currentWriteSeq := atomic.LoadInt64(&c.writeSeq)
 		minSeq := currentWriteSeq - int64(c.config.SharedBufferSize)
 		if cd.seq < minSeq {
-			c.logger.Debug("ReadChunks: Client pointer is stale; resetting to the latest chunk")
+			c.logger.DebugEvent().
+				Str("component", "StreamCoordinator").
+				Str("stream_id", c.streamID).
+				Int64("client_seq", cd.seq).
+				Int64("min_seq", minSeq).
+				Int64("current_seq", currentWriteSeq).
+				Msg("ReadChunks: Client pointer is stale; resetting to the latest chunk")
 			fromPosition = c.Buffer
 		}
 	}
@@ -318,8 +387,9 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 	current := fromPosition
 	var errorFound bool
 	var errorChunk *ChunkData
+	totalBytes := 0
 
-	// Iterate until we reach the writer’s current position.
+	// Iterate until we reach the writer's current position.
 	for current != c.Buffer {
 		if chunk, ok := current.Value.(*ChunkData); ok && chunk != nil {
 			if chunk.Buffer != nil && chunk.Buffer.Len() > 0 {
@@ -329,6 +399,7 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 				}
 				_, _ = newChunk.Buffer.Write(chunk.Buffer.Bytes())
 				chunks = append(chunks, newChunk)
+				totalBytes += chunk.Buffer.Len()
 			}
 			if chunk.Error != nil || chunk.Status != 0 {
 				errorFound = true
@@ -346,6 +417,15 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 		}
 	}
 	c.Mu.RUnlock()
+
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Int("chunks_read", len(chunks)).
+		Int("total_bytes", totalBytes).
+		Bool("error_found", errorFound).
+		Int("client_count", int(atomic.LoadInt32(&c.ClientCount))).
+		Msg("Buffer read completed")
 
 	if errorFound && errorChunk != nil {
 		return chunks, errorChunk, current
@@ -404,6 +484,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 	body io.ReadCloser,
 	processChunk func([]byte) error,
 ) error {
+	startTime := time.Now()
 	buffer := make([]byte, c.config.ChunkSize)
 	timeout := c.getTimeoutDuration()
 	backoff := proxy.NewBackoffStrategy(c.config.InitialBackoff,
@@ -412,22 +493,63 @@ func (c *StreamCoordinator) readAndWriteStream(
 	lastSuccess := time.Now()
 	lastErr := time.Now()
 	zeroReads := 0
+	totalBytesRead := 0
+	readCount := 0
+
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Int("chunk_size", c.config.ChunkSize).
+		Dur("timeout", timeout).
+		Msg("Starting stream read and write loop")
 
 	for atomic.LoadInt32(&c.state) == stateActive {
 		select {
 		case <-ctx.Done():
+			c.logger.DebugEvent().
+				Str("component", "StreamCoordinator").
+				Str("stream_id", c.streamID).
+				Dur("duration", time.Since(startTime)).
+				Int("total_bytes_read", totalBytesRead).
+				Int("read_count", readCount).
+				Msg("Stream context cancelled")
 			return ctx.Err()
 		default:
 			if c.shouldTimeout(lastSuccess, timeout) {
+				c.logger.ErrorEvent().
+					Str("component", "StreamCoordinator").
+					Str("stream_id", c.streamID).
+					Dur("duration", time.Since(startTime)).
+					Dur("time_since_success", time.Since(lastSuccess)).
+					Dur("timeout", timeout).
+					Int("total_bytes_read", totalBytesRead).
+					Msg("Stream timeout: no new segments")
 				return fmt.Errorf("stream timeout: no new segments")
 			}
 
 			n, err := body.Read(buffer)
-			c.logger.Debugf("Read %d bytes, err: %v", n, err)
+			readCount++
+			
+			if n > 0 {
+				totalBytesRead += n
+				c.logger.DebugEvent().
+					Str("component", "StreamCoordinator").
+					Str("stream_id", c.streamID).
+					Int("bytes_read", n).
+					Int("total_bytes_read", totalBytesRead).
+					Int("read_count", readCount).
+					Msg("Stream data read")
+			}
 
 			if n == 0 {
 				zeroReads++
 				if zeroReads > 10 {
+					c.logger.DebugEvent().
+						Str("component", "StreamCoordinator").
+						Str("stream_id", c.streamID).
+						Int("zero_reads", zeroReads).
+						Dur("duration", time.Since(startTime)).
+						Msg("Too many zero reads, ending stream")
 					return io.EOF
 				}
 				time.Sleep(10 * time.Millisecond)
@@ -440,19 +562,43 @@ func (c *StreamCoordinator) readAndWriteStream(
 				if err = processChunk(buffer[:n]); err != nil {
 					return err
 				}
+				c.logger.DebugEvent().
+					Str("component", "StreamCoordinator").
+					Str("stream_id", c.streamID).
+					Dur("duration", time.Since(startTime)).
+					Int("total_bytes_read", totalBytesRead).
+					Msg("Stream ended with EOF after final chunk")
 				return io.EOF
 			}
 
 			if err != nil {
 				if c.shouldRetry(timeout) {
+					c.logger.DebugEvent().
+						Str("component", "StreamCoordinator").
+						Str("stream_id", c.streamID).
+						Err(err).
+						Msg("Stream read error, retrying with backoff")
 					backoff.Sleep(ctx)
 					lastErr = time.Now()
 					continue
 				}
+				c.logger.ErrorEvent().
+					Str("component", "StreamCoordinator").
+					Str("stream_id", c.streamID).
+					Err(err).
+					Dur("duration", time.Since(startTime)).
+					Int("total_bytes_read", totalBytesRead).
+					Msg("Stream read error, not retrying")
 				return err
 			}
 
 			if err = processChunk(buffer[:n]); err != nil {
+				c.logger.ErrorEvent().
+					Str("component", "StreamCoordinator").
+					Str("stream_id", c.streamID).
+					Err(err).
+					Int("chunk_size", n).
+					Msg("Error processing chunk")
 				return err
 			}
 
@@ -463,5 +609,13 @@ func (c *StreamCoordinator) readAndWriteStream(
 			}
 		}
 	}
+	
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("stream_id", c.streamID).
+		Dur("duration", time.Since(startTime)).
+		Int("total_bytes_read", totalBytesRead).
+		Int("read_count", readCount).
+		Msg("Stream read and write loop ended")
 	return nil
 }

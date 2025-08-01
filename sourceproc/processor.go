@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"m3u-stream-merger/config"
 	"m3u-stream-merger/logger"
@@ -46,11 +47,34 @@ func NewProcessor() *M3UProcessor {
 }
 
 func (p *M3UProcessor) Start(r *http.Request) {
+	startTime := time.Now()
 	processCount := 0
+	
+	event := logger.Default.InfoEvent().
+		Str("component", "M3UProcessor")
+	
+	if r != nil {
+		event = event.
+			Str("method", r.Method).
+			Str("url", r.URL.String()).
+			Str("client_ip", r.RemoteAddr)
+	} else {
+		event = event.
+			Str("method", "").
+			Str("url", "").
+			Str("client_ip", "")
+	}
+	
+	event.Msg("Starting M3U processing")
+	
 	errors := p.processStreams(r)
 	for err := range errors {
 		if err != nil {
-			logger.Default.Errorf("Error while processing stream: %v", err)
+			logger.Default.ErrorEvent().
+				Str("component", "M3UProcessor").
+				Int("processed_count", processCount).
+				Err(err).
+				Msg("Error while processing stream")
 		}
 		processCount++
 		batch := int(math.Pow(10, math.Floor(math.Log10(float64(processCount)))))
@@ -58,37 +82,68 @@ func (p *M3UProcessor) Start(r *http.Request) {
 			batch = 100
 		}
 		if processCount%batch == 0 {
-			logger.Default.Logf("Processed %d streams so far", processCount)
+			logger.Default.InfoEvent().
+				Str("component", "M3UProcessor").
+				Int("processed_count", processCount).
+				Dur("duration", time.Since(startTime)).
+				Msg("Processing progress update")
 		}
 	}
-	logger.Default.Logf("Completed processing %d total streams", processCount)
+	
+	logger.Default.InfoEvent().
+		Str("component", "M3UProcessor").
+		Int("total_streams", processCount).
+		Dur("duration", time.Since(startTime)).
+		Msg("Completed M3U processing")
 }
 
 func (p *M3UProcessor) Wait(ctx context.Context) error {
+	startTime := time.Now()
+	
 	select {
 	case <-p.revalidatingDone:
+		logger.Default.DebugEvent().
+			Str("component", "M3UProcessor").
+			Dur("wait_duration", time.Since(startTime)).
+			Msg("Revalidation completed")
 	case <-ctx.Done():
-		logger.Default.Errorf("Revalidation failed due to context cancellation, keeping old data.")
+		logger.Default.ErrorEvent().
+			Str("component", "M3UProcessor").
+			Dur("wait_duration", time.Since(startTime)).
+			Str("temp_file", p.file.Name()).
+			Msg("Revalidation failed due to context cancellation, keeping old data")
 		os.Remove(p.file.Name())
 		p.cleanFailedRemoteFiles()
-
 		return ctx.Err()
 	}
-	logger.Default.Debug("Finished revalidation")
 
 	if !p.criticalErrorOccurred.Load() {
-		logger.Default.Debug("Error has not occurred")
+		logger.Default.DebugEvent().
+			Str("component", "M3UProcessor").
+			Msg("No critical errors occurred during processing")
 		prodPath := strings.TrimSuffix(p.file.Name(), ".tmp")
 
-		logger.Default.Debugf("Renaming %s to %s", p.file.Name(), prodPath)
+		logger.Default.DebugEvent().
+			Str("component", "M3UProcessor").
+			Str("temp_file", p.file.Name()).
+			Str("production_file", prodPath).
+			Msg("Renaming temporary file to production")
 		err := os.Rename(p.file.Name(), prodPath)
 		if err != nil {
-			logger.Default.Errorf("Error renaming file: %v", err)
+			logger.Default.ErrorEvent().
+				Str("component", "M3UProcessor").
+				Str("temp_file", p.file.Name()).
+				Str("production_file", prodPath).
+				Err(err).
+				Msg("Error renaming file")
 		}
 		p.applyNewRemoteFiles()
 		p.clearOldResults()
 	} else {
-		logger.Default.Errorf("Revalidation failed, keeping old data.")
+		logger.Default.ErrorEvent().
+			Str("component", "M3UProcessor").
+			Str("temp_file", p.file.Name()).
+			Msg("Revalidation failed due to critical errors, keeping old data")
 		os.Remove(p.file.Name())
 		p.file = nil
 		p.cleanFailedRemoteFiles()
@@ -143,7 +198,12 @@ func (p *M3UProcessor) processStreams(r *http.Request) chan error {
 	}
 
 	results := streamDownloadM3USources()
-	baseURL := utils.DetermineBaseURL(r)
+	var baseURL string
+	if r != nil {
+		baseURL = utils.DetermineBaseURL(r)
+	} else {
+		baseURL = "http://localhost" // Default for tests
+	}
 
 	// Increase channel buffer sizes
 	errors := make(chan error, 1000)         // Increased error buffer

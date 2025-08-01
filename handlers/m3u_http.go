@@ -77,15 +77,32 @@ func (h *M3UHTTPHandler) SetProcessedPath(path string) {
 }
 
 func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	startTime := time.Now()
+	
 	// Create a logger with correlation ID
 	requestLogger := h.logger.WithCorrelationID(r.Context())
 
-	requestLogger.Debugf("ServeHTTP called with path: %s", r.URL.Path)
+	requestLogger.DebugEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("method", r.Method).
+		Str("url", r.URL.String()).
+		Str("client_ip", r.RemoteAddr).
+		Str("user_agent", r.UserAgent()).
+		Str("url_path", r.URL.Path).
+		Msg("M3U playlist request received")
 
 	w.Header().Set("Access-control-allow-origin", "*")
 	isAuthorized := h.handleAuthWithLogger(r, requestLogger)
 	if !isAuthorized {
-		requestLogger.Logf("Unauthorized access attempt to %s", r.URL.Path)
+		requestLogger.WarnEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("method", r.Method).
+			Str("url", r.URL.String()).
+			Str("client_ip", r.RemoteAddr).
+			Str("user_agent", r.UserAgent()).
+			Int("status_code", http.StatusForbidden).
+			Dur("duration", time.Since(startTime)).
+			Msg("Unauthorized access attempt")
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
@@ -93,48 +110,96 @@ func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h.processedPath == "" {
 		requestLogger.ErrorEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("method", r.Method).
+			Str("url", r.URL.String()).
+			Str("client_ip", r.RemoteAddr).
+			Int("status_code", http.StatusNotFound).
+			Dur("duration", time.Since(startTime)).
 			Msg("No processed M3U found")
 		http.Error(w, "No processed M3U found.", http.StatusNotFound)
 		return
 	}
-	requestLogger.Debugf("Serving file: %s", h.processedPath)
+	
+	requestLogger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("method", r.Method).
+		Str("url", r.URL.String()).
+		Str("client_ip", r.RemoteAddr).
+		Str("playlist_url", h.processedPath).
+		Int("status_code", http.StatusOK).
+		Dur("duration", time.Since(startTime)).
+		Msg("Serving M3U playlist")
 	http.ServeFile(w, r, h.processedPath)
 }
 
 func (h *M3UHTTPHandler) handleAuthWithLogger(r *http.Request, requestLogger logger.Logger) bool {
-	requestLogger.Debugf("Handling authentication request. Number of loaded credentials: %d", len(h.credentials))
+	requestLogger.DebugEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("client_ip", r.RemoteAddr).
+		Int("credentials_count", len(h.credentials)).
+		Msg("Handling authentication request")
 
 	if len(h.credentials) == 0 {
-		requestLogger.Debug("No credentials loaded, allowing access")
+		requestLogger.DebugEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Msg("No credentials loaded, allowing access")
 		return true // No authentication required
 	}
 
 	user, pass := r.URL.Query().Get("username"), r.URL.Query().Get("password")
-	requestLogger.Debugf("Authentication attempt with username: %s, password: (redacted)", user)
+	requestLogger.DebugEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("client_ip", r.RemoteAddr).
+		Str("username", user).
+		Msg("Authentication attempt")
 
 	if user == "" || pass == "" {
-		requestLogger.Debug("Missing username or password in request")
+		requestLogger.WarnEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("username", user).
+			Bool("username_provided", user != "").
+			Bool("password_provided", pass != "").
+			Msg("Missing username or password in request")
 		return false
 	}
 
 	cred, ok := h.credentials[strings.ToLower(user)]
 	if !ok {
-		requestLogger.Debugf("User %s not found in credentials", user)
+		requestLogger.WarnEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("username", user).
+			Msg("User not found in credentials")
 		return false
 	}
 
 	// Constant-time comparison for passwords
 	if subtle.ConstantTimeCompare([]byte(pass), []byte(cred.Password)) != 1 {
-		requestLogger.Debug("Password mismatch for user")
+		requestLogger.WarnEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("username", user).
+			Msg("Password mismatch for user")
 		return false
 	}
 
 	// Check expiration
 	if !cred.Expiration.IsZero() && time.Now().After(cred.Expiration) {
-		requestLogger.Debugf("Credential expired for user: %s", user)
+		requestLogger.WarnEvent().
+			Str("component", "M3UHTTPHandler").
+			Str("client_ip", r.RemoteAddr).
+			Str("username", user).
+			Time("expiration", cred.Expiration).
+			Msg("Credential expired for user")
 		return false
 	}
 
-	requestLogger.Debug("Authentication successful")
+	requestLogger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("client_ip", r.RemoteAddr).
+		Str("username", user).
+		Msg("Authentication successful")
 	return true
 }

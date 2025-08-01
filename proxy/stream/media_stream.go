@@ -49,10 +49,20 @@ func (h *StreamHandler) HandleDirectStream(
 	lbResult *loadbalancer.LoadBalancerResult,
 	streamClient *client.StreamClient,
 ) StreamResult {
+	startTime := time.Now()
 	remoteAddr := ""
 	if streamClient.Request != nil {
 		remoteAddr = streamClient.Request.RemoteAddr
 	}
+	
+	h.logger.InfoEvent().
+		Str("component", "StreamHandler").
+		Str("client_ip", remoteAddr).
+		Str("target_url", lbResult.URL).
+		Int("status_code", lbResult.Response.StatusCode).
+		Int("buffer_size", h.config.ChunkSize*h.config.SharedBufferSize).
+		Msg("Starting direct stream handling")
+	
 	buffer := make([]byte, h.config.ChunkSize*h.config.SharedBufferSize)
 	readChan := make(chan struct {
 		n   int
@@ -76,17 +86,47 @@ func (h *StreamHandler) HandleDirectStream(
 
 		select {
 		case <-ctx.Done():
+			h.logger.InfoEvent().
+				Str("component", "StreamHandler").
+				Str("client_ip", remoteAddr).
+				Str("target_url", lbResult.URL).
+				Int64("bytes_written", bytesWritten).
+				Dur("duration", time.Since(startTime)).
+				Msg("Context canceled for direct stream")
 			return StreamResult{bytesWritten, fmt.Errorf("context canceled for stream: %s", remoteAddr), proxy.StatusClientClosed}
 		case result := <-readChan:
 			bytesWritten += int64(result.n)
 
 			switch {
 			case result.err == io.EOF:
+				h.logger.InfoEvent().
+					Str("component", "StreamHandler").
+					Str("client_ip", remoteAddr).
+					Str("target_url", lbResult.URL).
+					Int64("bytes_written", bytesWritten).
+					Dur("duration", time.Since(startTime)).
+					Msg("EOF reached for direct stream")
 				return StreamResult{bytesWritten, fmt.Errorf("EOF reached for stream: %s", remoteAddr), proxy.StatusEOF}
 			case result.err != nil:
+				h.logger.ErrorEvent().
+					Str("component", "StreamHandler").
+					Str("client_ip", remoteAddr).
+					Str("target_url", lbResult.URL).
+					Int64("bytes_written", bytesWritten).
+					Dur("duration", time.Since(startTime)).
+					Err(result.err).
+					Msg("Server error for direct stream")
 				return StreamResult{bytesWritten, fmt.Errorf("server error for stream: %s", remoteAddr), proxy.StatusServerError}
 			case result.err == nil:
 				if _, err := streamClient.Write(buffer[:result.n]); err != nil {
+					h.logger.ErrorEvent().
+						Str("component", "StreamHandler").
+						Str("client_ip", remoteAddr).
+						Str("target_url", lbResult.URL).
+						Int64("bytes_written", bytesWritten).
+						Dur("duration", time.Since(startTime)).
+						Err(err).
+						Msg("Client write error for direct stream")
 					return StreamResult{bytesWritten, fmt.Errorf("server error for stream: %s", remoteAddr), proxy.StatusClientClosed}
 				}
 
@@ -154,7 +194,12 @@ func (h *StreamHandler) HandleStream(
 	}
 	h.coordinator.InitializationMu.Unlock()
 
-	h.logger.Debugf("Client registered: %s, count: %d", remoteAddr, atomic.LoadInt32(&h.coordinator.ClientCount))
+	clientCount := atomic.LoadInt32(&h.coordinator.ClientCount)
+	h.logger.DebugEvent().
+		Str("component", "StreamHandler").
+		Str("client_ip", remoteAddr).
+		Int("client_count", int(clientCount)).
+		Msg("Client registered for shared buffer stream")
 
 	cleanup := func() {
 		h.coordinator.UnregisterClient()
