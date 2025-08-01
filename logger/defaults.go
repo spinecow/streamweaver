@@ -10,12 +10,66 @@ import (
 )
 
 type DefaultLogger struct {
-	Logger
+	logger zerolog.Logger
+	fields map[string]interface{}
 }
 
-var Default = &DefaultLogger{}
+var Default = NewDefaultLogger()
 
-var logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+func NewDefaultLogger() *DefaultLogger {
+	var logger zerolog.Logger
+	if os.Getenv("LOG_FORMAT") == "json" {
+		logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+	} else {
+		logger = zerolog.New(zerolog.ConsoleWriter{Out: os.Stdout}).With().Timestamp().Logger()
+	}
+	return &DefaultLogger{
+		logger: logger,
+		fields: make(map[string]interface{}),
+	}
+}
+
+// WithFields creates a new logger instance with additional fields
+func (l *DefaultLogger) WithFields(fields map[string]interface{}) Logger {
+	// Validate fields
+	for key, value := range fields {
+		// Ensure key is a valid string for JSON
+		if key == "" {
+			// Skip empty keys
+			continue
+		}
+		// Handle special values that might not serialize well
+		if value == nil {
+			fields[key] = nil
+		}
+	}
+
+	// Create a new logger with additional fields
+	newFields := make(map[string]interface{})
+	for k, v := range l.fields {
+		newFields[k] = v
+	}
+	for k, v := range fields {
+		newFields[k] = v
+	}
+
+	newLogger := &DefaultLogger{
+		logger: l.logger.With().Fields(newFields).Logger(),
+		fields: newFields,
+	}
+	return newLogger
+}
+
+// WithSensitiveField creates a logger with automatic redaction of sensitive fields
+func (l *DefaultLogger) WithSensitiveField(key, value string) Logger {
+	safeLogs := os.Getenv("SAFE_LOGS") == "true"
+	safeValue := value
+	if safeLogs {
+		safeValue = "[redacted]"
+	}
+
+	return l.WithFields(map[string]interface{}{key: safeValue})
+}
 
 // EventWrapper wraps a zerolog.Event to implement our Event interface
 type EventWrapper struct {
@@ -90,69 +144,69 @@ func safeLogf(format string, v ...any) string {
 	return safeString
 }
 
-func (*DefaultLogger) Log(format string) {
-	logger.Info().Msg(safeLogf("%s", format))
+func (l *DefaultLogger) Log(format string) {
+	l.logger.Info().Msg(safeLogf("%s", format))
 }
 
-func (*DefaultLogger) Logf(format string, v ...any) {
+func (l *DefaultLogger) Logf(format string, v ...any) {
 	logString := fmt.Sprintf(format, v...)
-	logger.Info().Msg(safeLogf("%s", logString))
+	l.logger.Info().Msg(safeLogf("%s", logString))
 }
 
-func (*DefaultLogger) Debug(format string) {
+func (l *DefaultLogger) Debug(format string) {
 	debug := os.Getenv("DEBUG") == "true"
 
 	if debug {
-		logger.Debug().Msg(safeLogf("%s", format))
+		l.logger.Debug().Msg(safeLogf("%s", format))
 	}
 }
 
-func (*DefaultLogger) Debugf(format string, v ...any) {
+func (l *DefaultLogger) Debugf(format string, v ...any) {
 	debug := os.Getenv("DEBUG") == "true"
 	logString := fmt.Sprintf(format, v...)
 
 	if debug {
-		logger.Debug().Msg(safeLogf("%s", logString))
+		l.logger.Debug().Msg(safeLogf("%s", logString))
 	}
 }
 
-func (*DefaultLogger) Error(format string) {
-	logger.Error().Msg(safeLogf("%s", format))
+func (l *DefaultLogger) Error(format string) {
+	l.logger.Error().Msg(safeLogf("%s", format))
 }
 
-func (*DefaultLogger) Errorf(format string, v ...any) {
+func (l *DefaultLogger) Errorf(format string, v ...any) {
 	logString := fmt.Sprintf(format, v...)
-	logger.Error().Msg(safeLogf("%s", logString))
+	l.logger.Error().Msg(safeLogf("%s", logString))
 }
 
-func (*DefaultLogger) Warn(format string) {
-	logger.Warn().Msg(safeLogf("%s", format))
+func (l *DefaultLogger) Warn(format string) {
+	l.logger.Warn().Msg(safeLogf("%s", format))
 }
 
-func (*DefaultLogger) Warnf(format string, v ...any) {
+func (l *DefaultLogger) Warnf(format string, v ...any) {
 	logString := fmt.Sprintf(format, v...)
-	logger.Warn().Msg(safeLogf("%s", logString))
+	l.logger.Warn().Msg(safeLogf("%s", logString))
 }
 
-func (*DefaultLogger) Fatal(format string) {
-	logger.Fatal().Msg(safeLogf("%s", format))
+func (l *DefaultLogger) Fatal(format string) {
+	l.logger.Fatal().Msg(safeLogf("%s", format))
 }
 
-func (*DefaultLogger) Fatalf(format string, v ...any) {
+func (l *DefaultLogger) Fatalf(format string, v ...any) {
 	logString := fmt.Sprintf(format, v...)
-	logger.Fatal().Msg(safeLogf("%s", logString))
+	l.logger.Fatal().Msg(safeLogf("%s", logString))
 }
 
 // InfoEvent implements the Logger interface for DefaultLogger
-func (*DefaultLogger) InfoEvent() Event {
-	return &EventWrapper{event: logger.Info()}
+func (l *DefaultLogger) InfoEvent() Event {
+	return &EventWrapper{event: l.logger.Info()}
 }
 
 // DebugEvent implements the Logger interface for DefaultLogger
-func (*DefaultLogger) DebugEvent() Event {
+func (l *DefaultLogger) DebugEvent() Event {
 	debug := os.Getenv("DEBUG") == "true"
 	if debug {
-		return &EventWrapper{event: logger.Debug()}
+		return &EventWrapper{event: l.logger.Debug()}
 	}
 	// Return a no-op event when debug is disabled
 	nopLogger := zerolog.Nop()
@@ -160,16 +214,16 @@ func (*DefaultLogger) DebugEvent() Event {
 }
 
 // WarnEvent implements the Logger interface for DefaultLogger
-func (*DefaultLogger) WarnEvent() Event {
-	return &EventWrapper{event: logger.Warn()}
+func (l *DefaultLogger) WarnEvent() Event {
+	return &EventWrapper{event: l.logger.Warn()}
 }
 
 // ErrorEvent implements the Logger interface for DefaultLogger
-func (*DefaultLogger) ErrorEvent() Event {
-	return &EventWrapper{event: logger.Error()}
+func (l *DefaultLogger) ErrorEvent() Event {
+	return &EventWrapper{event: l.logger.Error()}
 }
 
 // FatalEvent implements the Logger interface for DefaultLogger
-func (*DefaultLogger) FatalEvent() Event {
-	return &EventWrapper{event: logger.Fatal()}
+func (l *DefaultLogger) FatalEvent() Event {
+	return &EventWrapper{event: l.logger.Fatal()}
 }
