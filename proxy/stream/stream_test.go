@@ -104,7 +104,10 @@ func (m *mockHLSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "video/MP2T")
 			_, _ = w.Write(data)
 		} else {
-			m.logger.Errorf("Segment not found: %s", segmentKey)
+			m.logger.ErrorEvent().
+				Str("component", "mockHLSServer").
+				Str("segment_key", segmentKey).
+				Msg("Segment not found")
 			w.WriteHeader(http.StatusNotFound)
 		}
 

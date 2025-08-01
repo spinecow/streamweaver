@@ -32,7 +32,10 @@ func (c *StreamCoordinator) StartHLSWriter(ctx context.Context, lbResult *loadba
 	defer func() {
 		c.LBResultOnWrite.Store(nil)
 		if r := recover(); r != nil {
-			c.logger.Errorf("Panic in StartHLSWriter: %v", r)
+			c.logger.ErrorEvent().
+				Str("component", "StreamCoordinator").
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic in StartHLSWriter")
 			c.writeError(fmt.Errorf("internal server error"), proxy.StatusServerError)
 		}
 	}()
@@ -123,7 +126,10 @@ func (c *StreamCoordinator) StartHLSWriter(ctx context.Context, lbResult *loadba
 				// Process remaining segments before ending
 				err = c.processSegments(ctx, metadata.Segments)
 				if err != nil {
-					c.logger.Errorf("Error processing segments: %v", err)
+					c.logger.ErrorEvent().
+						Str("component", "StreamCoordinator").
+						Err(err).
+						Msg("Error processing segments")
 				}
 				c.writeError(io.EOF, proxy.StatusEOF)
 				return
@@ -165,16 +171,16 @@ func (c *StreamCoordinator) processSegments(ctx context.Context, segments []stri
 func (c *StreamCoordinator) streamSegment(ctx context.Context, segmentURL string) error {
 	req, err := http.NewRequest("GET", segmentURL, nil)
 	if err != nil {
-		return fmt.Errorf("Error creating request to segment: %v", err)
+		return fmt.Errorf("error creating request to segment: %v", err)
 	}
 
 	resp, err := utils.HTTPClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("Error fetching segment stream: %v", err)
+		return fmt.Errorf("error fetching segment stream: %v", err)
 	}
 
 	if resp == nil {
-		return errors.New("Returned nil response from HTTP client")
+		return errors.New("returned nil response from HTTP client")
 	}
 	defer resp.Body.Close()
 

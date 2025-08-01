@@ -130,8 +130,11 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 func (h *StreamHTTPHandler) handleExitCode(code int, r *http.Request) bool {
 	switch code {
 	case proxy.StatusIncompatible:
-		h.logger.Errorf("Finished handling M3U8 %s request but failed to parse contents.",
-			r.Method, r.RemoteAddr)
+		h.logger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("Finished handling M3U8 request but failed to parse contents.")
 		fallthrough
 	case proxy.StatusEOF:
 		fallthrough
@@ -143,8 +146,11 @@ func (h *StreamHTTPHandler) handleExitCode(code int, r *http.Request) bool {
 			r.RemoteAddr)
 		return true
 	case proxy.StatusM3U8ParseError:
-		h.logger.Errorf("Finished handling M3U8 %s request but failed to parse contents.",
-			r.Method, r.RemoteAddr)
+		h.logger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("method", r.Method).
+			Str("remote_addr", r.RemoteAddr).
+			Msg("Finished handling M3U8 request but failed to parse contents")
 		return false
 	default:
 		h.logger.Logf("Unable to write to client. Assuming stream has been closed: %s",
@@ -161,15 +167,22 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	streamId := h.extractStreamURL(r.URL.Path)
 	if streamId == "" {
-		h.logger.Errorf("Invalid m3uID for request from %s: %s",
-			r.RemoteAddr, r.URL.Path)
+		h.logger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("remote_addr", r.RemoteAddr).
+			Str("url_path", r.URL.Path).
+			Msg("Invalid m3uID for request")
 		return
 	}
 
 	segment, err := failovers.ParseSegmentId(streamId)
 	if err != nil {
-		h.logger.Errorf("Segment parsing error %s: %s",
-			r.RemoteAddr, r.URL.Path)
+		h.logger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("remote_addr", r.RemoteAddr).
+			Str("url_path", r.URL.Path).
+			Err(err).
+			Msg("Segment parsing error")
 		_ = streamClient.WriteHeader(http.StatusInternalServerError)
 		_, _ = streamClient.Write([]byte(fmt.Sprintf("Segment parsing error: %v", err)))
 		return
@@ -177,7 +190,10 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	resp, err := utils.HTTPClient.Get(segment.URL)
 	if err != nil {
-		h.logger.Errorf("Failed to fetch URL: %v", err)
+		h.logger.ErrorEvent().
+			Str("component", "StreamHTTPHandler").
+			Err(err).
+			Msg("Failed to fetch URL")
 		_ = streamClient.WriteHeader(http.StatusInternalServerError)
 		_, _ = streamClient.Write([]byte(fmt.Sprintf("Failed to fetch URL: %v", err)))
 		return
@@ -196,7 +212,10 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 		if isBrokenPipe(err) {
 			h.logger.Debugf("Client disconnected (broken pipe): %v", err)
 		} else {
-			h.logger.Errorf("Error copying response body: %v", err)
+			h.logger.ErrorEvent().
+				Str("component", "StreamHTTPHandler").
+				Err(err).
+				Msg("Error copying response body.")
 		}
 	}
 }

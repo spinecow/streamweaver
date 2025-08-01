@@ -55,7 +55,10 @@ func (sm *DefaultProxyInstance) ProxyStream(ctx context.Context, coordinator *bu
 	instance, err := stream.NewStreamInstance(sm.cm, sm.streamConfig,
 		stream.WithLogger(sm.logger))
 	if err != nil {
-		sm.logger.Errorf("Failed to create stream instance: %v", err)
+		sm.logger.ErrorEvent().
+			Str("component", "DefaultProxyInstance").
+			Err(err).
+			Msg("Failed to create stream instance")
 		exitStatus <- proxy.StatusServerError
 		return
 	}

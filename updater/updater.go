@@ -89,7 +89,9 @@ func (instance *Updater) UpdateSources(ctx context.Context) {
 
 		instance.logger.Log("Background process: Building merged M3U...")
 		if _, ok := os.LookupEnv("BASE_URL"); !ok {
-			instance.logger.Error("BASE_URL is required for M3U processing to work.")
+			instance.logger.ErrorEvent().
+				Str("component", "Updater").
+				Msg("BASE_URL is required for M3U processing to work.")
 			return
 		}
 		if err := processor.Run(ctx, nil); err == nil {

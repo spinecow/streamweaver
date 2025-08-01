@@ -82,7 +82,10 @@ func (instance *StreamInstance) ProxyStream(
 	}
 	if result.Error != nil {
 		if result.Status != proxy.StatusIncompatible {
-			instance.logger.Errorf("Stream handler status: %v", result.Error)
+			instance.logger.ErrorEvent().
+				Str("component", "StreamInstance").
+				Err(result.Error).
+				Msg("Stream handler error")
 		}
 	}
 

@@ -65,7 +65,10 @@ func (p *M3U8Processor) processURL(
 ) error {
 	u, err := url.Parse(line)
 	if err != nil {
-		p.logger.Errorf("Failed to parse M3U8 URL in line: %v", err)
+		p.logger.ErrorEvent().
+			Str("component", "M3U8Processor").
+			Err(err).
+			Msg("Failed to parse M3U8 URL in line")
 		return p.writeLine(streamClient, line)
 	}
 

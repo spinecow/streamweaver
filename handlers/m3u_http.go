@@ -38,7 +38,7 @@ func NewM3UHTTPHandler(logger logger.Logger, processedPath string) *M3UHTTPHandl
 func (h *M3UHTTPHandler) loadCredentials() {
 	credsStr := os.Getenv("CREDENTIALS")
 	h.logger.Debugf("Loading credentials from environment variable. Length: %d", len(credsStr))
-	
+
 	if credsStr == "" || strings.ToLower(credsStr) == "none" {
 		h.logger.Log("No credentials configured, authentication disabled")
 		return
@@ -47,7 +47,10 @@ func (h *M3UHTTPHandler) loadCredentials() {
 	var creds []Credential
 	err := json.Unmarshal([]byte(credsStr), &creds)
 	if err != nil {
-		h.logger.Errorf("error parsing credentials: %v", err)
+		h.logger.ErrorEvent().
+			Str("component", "M3UHTTPHandler").
+			Err(err).
+			Msg("Error parsing credentials")
 		return
 	}
 
@@ -63,7 +66,7 @@ func (h *M3UHTTPHandler) loadCredentials() {
 		}
 		h.credentials[strings.ToLower(cred.Username)] = cred
 	}
-	
+
 	h.logger.Logf("Loaded %d credentials into memory", len(h.credentials))
 }
 
@@ -73,7 +76,7 @@ func (h *M3UHTTPHandler) SetProcessedPath(path string) {
 
 func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debugf("ServeHTTP called with path: %s", r.URL.Path)
-	
+
 	w.Header().Set("Access-control-allow-origin", "*")
 	isAuthorized := h.handleAuth(r)
 	if !isAuthorized {
@@ -83,18 +86,19 @@ func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.processedPath == "" {
-		h.logger.Error("No processed M3U found.")
+		h.logger.ErrorEvent().
+			Str("component", "M3UHTTPHandler").
+			Msg("No processed M3U found")
 		http.Error(w, "No processed M3U found.", http.StatusNotFound)
 		return
 	}
-
 	h.logger.Debugf("Serving file: %s", h.processedPath)
 	http.ServeFile(w, r, h.processedPath)
 }
 
 func (h *M3UHTTPHandler) handleAuth(r *http.Request) bool {
 	h.logger.Debugf("Handling authentication request. Number of loaded credentials: %d", len(h.credentials))
-	
+
 	if len(h.credentials) == 0 {
 		h.logger.Debug("No credentials loaded, allowing access")
 		return true // No authentication required
@@ -102,7 +106,7 @@ func (h *M3UHTTPHandler) handleAuth(r *http.Request) bool {
 
 	user, pass := r.URL.Query().Get("username"), r.URL.Query().Get("password")
 	h.logger.Debugf("Authentication attempt with username: %s, password: (redacted)", user)
-	
+
 	if user == "" || pass == "" {
 		h.logger.Debug("Missing username or password in request")
 		return false

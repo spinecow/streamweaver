@@ -76,7 +76,7 @@ func (h *StreamHandler) HandleDirectStream(
 
 		select {
 		case <-ctx.Done():
-			return StreamResult{bytesWritten, fmt.Errorf("Context canceled for stream: %s", remoteAddr), proxy.StatusClientClosed}
+			return StreamResult{bytesWritten, fmt.Errorf("context canceled for stream: %s", remoteAddr), proxy.StatusClientClosed}
 		case result := <-readChan:
 			bytesWritten += int64(result.n)
 
@@ -84,10 +84,10 @@ func (h *StreamHandler) HandleDirectStream(
 			case result.err == io.EOF:
 				return StreamResult{bytesWritten, fmt.Errorf("EOF reached for stream: %s", remoteAddr), proxy.StatusEOF}
 			case result.err != nil:
-				return StreamResult{bytesWritten, fmt.Errorf("Server error for stream: %s", remoteAddr), proxy.StatusServerError}
+				return StreamResult{bytesWritten, fmt.Errorf("server error for stream: %s", remoteAddr), proxy.StatusServerError}
 			case result.err == nil:
 				if _, err := streamClient.Write(buffer[:result.n]); err != nil {
-					return StreamResult{bytesWritten, fmt.Errorf("Server error for stream: %s", remoteAddr), proxy.StatusClientClosed}
+					return StreamResult{bytesWritten, fmt.Errorf("server error for stream: %s", remoteAddr), proxy.StatusClientClosed}
 				}
 
 				streamClient.Flush()
@@ -106,7 +106,9 @@ func (h *StreamHandler) HandleStream(
 		remoteAddr = streamClient.Request.RemoteAddr
 	}
 	if h.coordinator == nil {
-		h.logger.Error("handleBufferedStream: coordinator is nil")
+		h.logger.ErrorEvent().
+			Str("component", "StreamHandler").
+			Msg("handleBufferedStream: coordinator is nil")
 		return StreamResult{0, fmt.Errorf("coordinator is nil"), proxy.StatusServerError}
 	}
 
@@ -228,7 +230,9 @@ func (h *StreamHandler) HandleStream(
 					if chunk != nil && chunk.Buffer != nil && chunk.Buffer.Len() > 0 {
 						// Protect against nil writer
 						if !streamClient.IsWritable() {
-							h.logger.Error("Writer is nil")
+							h.logger.ErrorEvent().
+								Str("component", "StreamHandler").
+								Msg("Writer is nil")
 							return StreamResult{bytesWritten, fmt.Errorf("writer is nil"), proxy.StatusServerError}
 						}
 
@@ -241,7 +245,7 @@ func (h *StreamHandler) HandleStream(
 
 						contentType := respHeaders.Get("Content-Type")
 						if !safeConcatTypes[strings.ToLower(contentType)] && utils.IsAnM3U8Media(lbResult.Response) {
-							return StreamResult{bytesWritten, fmt.Errorf("%s cannot be safely concatenated and is not supported by this proxy.", contentType), proxy.StatusIncompatible}
+							return StreamResult{bytesWritten, fmt.Errorf("%s cannot be safely concatenated and is not supported by this proxy", contentType), proxy.StatusIncompatible}
 						}
 						streamClient.ResponseHeaders = *respHeaders
 
@@ -292,7 +296,10 @@ func (h *StreamHandler) HandleStream(
 func (h *StreamHandler) safeWrite(streamClient *client.StreamClient, data []byte) (n int, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			h.logger.Errorf("Panic in write: %v", r)
+			h.logger.ErrorEvent().
+				Str("component", "StreamHandler").
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic in write")
 			err = fmt.Errorf("write failed: %v", r)
 		}
 	}()
@@ -304,7 +311,10 @@ func (h *StreamHandler) safeWrite(streamClient *client.StreamClient, data []byte
 func (h *StreamHandler) safeFlush(streamClient *client.StreamClient) error {
 	defer func() {
 		if r := recover(); r != nil {
-			h.logger.Errorf("Panic in flush: %v", r)
+			h.logger.ErrorEvent().
+				Str("component", "StreamHandler").
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic in flush")
 		}
 	}()
 

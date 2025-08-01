@@ -233,7 +233,11 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 
 			innerMap, ok := instance.GetStreamInfo().URLs.Load(index)
 			if !ok {
-				instance.logger.Errorf("Channel not found from M3U_%s: %s", index, instance.GetStreamInfo().Title)
+				instance.logger.ErrorEvent().
+					Str("component", "LoadBalancerInstance").
+					Str("index", index).
+					Str("title", instance.GetStreamInfo().Title).
+					Msg("Channel not found from M3U")
 				continue
 			}
 
@@ -294,26 +298,39 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 
 		req, err := http.NewRequest(method, url, nil)
 		if err != nil {
-			instance.logger.Errorf("Error creating request: %s", err.Error())
+			instance.logger.ErrorEvent().
+				Str("component", "LoadBalancerInstance").
+				Err(err).
+				Msg("Error creating request")
 			instance.markTested(streamId, id)
 			continue
 		}
 
 		resp, err := instance.httpClient.Do(req)
 		if err != nil {
-			instance.logger.Errorf("Error fetching stream: %s", err.Error())
+			instance.logger.ErrorEvent().
+				Str("component", "LoadBalancerInstance").
+				Err(err).
+				Msg("Error fetching stream")
 			instance.markTested(streamId, id)
 			continue
 		}
 
 		if resp == nil {
-			instance.logger.Errorf("Received nil response from HTTP client")
+			instance.logger.ErrorEvent().
+				Str("component", "LoadBalancerInstance").
+				Msg("Received nil response from HTTP client")
 			instance.markTested(streamId, id)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			instance.logger.Errorf("Non-200 status code received: %d for %s %s", resp.StatusCode, method, url)
+			instance.logger.ErrorEvent().
+				Str("component", "LoadBalancerInstance").
+				Int("status_code", resp.StatusCode).
+				Str("method", method).
+				Str("url", url).
+				Msg("Non-200 status code received")
 			instance.markTested(streamId, id)
 			continue
 		}

@@ -13,7 +13,10 @@ func (c *StreamCoordinator) StartMediaWriter(ctx context.Context, lbResult *load
 	defer func() {
 		c.LBResultOnWrite.Store(nil)
 		if r := recover(); r != nil {
-			c.logger.Errorf("Panic in StartMediaWriter: %v", r)
+			c.logger.ErrorEvent().
+				Str("component", "StreamCoordinator").
+				Str("panic", fmt.Sprintf("%v", r)).
+				Msg("Panic in StartMediaWriter")
 			c.writeError(fmt.Errorf("internal server error"), proxy.StatusServerError)
 		}
 	}()
