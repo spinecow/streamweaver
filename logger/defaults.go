@@ -1,11 +1,14 @@
 package logger
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"m3u-stream-merger/correlation"
 
 	"github.com/rs/zerolog"
 )
@@ -45,7 +48,7 @@ func NewDefaultLogger() *DefaultLogger {
 			logLevel = zerolog.InfoLevel
 		}
 	}
-	
+
 	// Apply the log level to the logger instance
 	logger = logger.Level(logLevel)
 	zerolog.SetGlobalLevel(logLevel)
@@ -85,6 +88,16 @@ func (l *DefaultLogger) WithFields(fields map[string]interface{}) Logger {
 		fields: newFields,
 	}
 	return newLogger
+}
+
+// WithCorrelationID creates a new logger instance with a correlation ID field
+func (l *DefaultLogger) WithCorrelationID(ctx context.Context) Logger {
+	if ctx != nil {
+		if correlationID, ok := correlation.CorrelationIDFromContext(ctx); ok {
+			return l.WithFields(map[string]interface{}{"correlation_id": correlationID})
+		}
+	}
+	return l
 }
 
 // WithSensitiveField creates a logger with automatic redaction of sensitive fields

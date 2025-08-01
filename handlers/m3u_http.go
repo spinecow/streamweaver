@@ -24,6 +24,7 @@ type M3UHTTPHandler struct {
 }
 
 func NewM3UHTTPHandler(logger logger.Logger, processedPath string) *M3UHTTPHandler {
+	// Note: This logger is used during initialization, so we can't add correlation ID yet
 	logger.Logf("Creating new M3UHTTPHandler with processedPath: %s", processedPath)
 	h := &M3UHTTPHandler{
 		logger:        logger,
@@ -36,6 +37,7 @@ func NewM3UHTTPHandler(logger logger.Logger, processedPath string) *M3UHTTPHandl
 }
 
 func (h *M3UHTTPHandler) loadCredentials() {
+	// Note: This method is called during initialization, so we can't add correlation ID yet
 	credsStr := os.Getenv("CREDENTIALS")
 	h.logger.Debugf("Loading credentials from environment variable. Length: %d", len(credsStr))
 
@@ -75,61 +77,64 @@ func (h *M3UHTTPHandler) SetProcessedPath(path string) {
 }
 
 func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debugf("ServeHTTP called with path: %s", r.URL.Path)
+	// Create a logger with correlation ID
+	requestLogger := h.logger.WithCorrelationID(r.Context())
+
+	requestLogger.Debugf("ServeHTTP called with path: %s", r.URL.Path)
 
 	w.Header().Set("Access-control-allow-origin", "*")
-	isAuthorized := h.handleAuth(r)
+	isAuthorized := h.handleAuthWithLogger(r, requestLogger)
 	if !isAuthorized {
-		h.logger.Logf("Unauthorized access attempt to %s", r.URL.Path)
+		requestLogger.Logf("Unauthorized access attempt to %s", r.URL.Path)
 		http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return
 	}
 
 	if h.processedPath == "" {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "M3UHTTPHandler").
 			Msg("No processed M3U found")
 		http.Error(w, "No processed M3U found.", http.StatusNotFound)
 		return
 	}
-	h.logger.Debugf("Serving file: %s", h.processedPath)
+	requestLogger.Debugf("Serving file: %s", h.processedPath)
 	http.ServeFile(w, r, h.processedPath)
 }
 
-func (h *M3UHTTPHandler) handleAuth(r *http.Request) bool {
-	h.logger.Debugf("Handling authentication request. Number of loaded credentials: %d", len(h.credentials))
+func (h *M3UHTTPHandler) handleAuthWithLogger(r *http.Request, requestLogger logger.Logger) bool {
+	requestLogger.Debugf("Handling authentication request. Number of loaded credentials: %d", len(h.credentials))
 
 	if len(h.credentials) == 0 {
-		h.logger.Debug("No credentials loaded, allowing access")
+		requestLogger.Debug("No credentials loaded, allowing access")
 		return true // No authentication required
 	}
 
 	user, pass := r.URL.Query().Get("username"), r.URL.Query().Get("password")
-	h.logger.Debugf("Authentication attempt with username: %s, password: (redacted)", user)
+	requestLogger.Debugf("Authentication attempt with username: %s, password: (redacted)", user)
 
 	if user == "" || pass == "" {
-		h.logger.Debug("Missing username or password in request")
+		requestLogger.Debug("Missing username or password in request")
 		return false
 	}
 
 	cred, ok := h.credentials[strings.ToLower(user)]
 	if !ok {
-		h.logger.Debugf("User %s not found in credentials", user)
+		requestLogger.Debugf("User %s not found in credentials", user)
 		return false
 	}
 
 	// Constant-time comparison for passwords
 	if subtle.ConstantTimeCompare([]byte(pass), []byte(cred.Password)) != 1 {
-		h.logger.Debug("Password mismatch for user")
+		requestLogger.Debug("Password mismatch for user")
 		return false
 	}
 
 	// Check expiration
 	if !cred.Expiration.IsZero() && time.Now().After(cred.Expiration) {
-		h.logger.Debugf("Credential expired for user: %s", user)
+		requestLogger.Debugf("Credential expired for user: %s", user)
 		return false
 	}
 
-	h.logger.Debug("Authentication successful")
+	requestLogger.Debug("Authentication successful")
 	return true
 }

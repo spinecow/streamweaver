@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"m3u-stream-merger/correlation"
 	"m3u-stream-merger/handlers"
 	"m3u-stream-merger/logger"
 	"m3u-stream-merger/updater"
@@ -36,19 +37,19 @@ func main() {
 	}
 
 	logger.Default.Log("Setting up HTTP handlers...")
-	// HTTP handlers
-	http.HandleFunc("/playlist.m3u", func(w http.ResponseWriter, r *http.Request) {
+	// HTTP handlers with correlation ID middleware
+	http.Handle("/playlist.m3u", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m3uHandler.ServeHTTP(w, r)
-	})
-	http.HandleFunc("/p/", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/p/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		streamHandler.ServeHTTP(w, r)
-	})
-	http.HandleFunc("/a/", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/a/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		passthroughHandler.ServeHTTP(w, r)
-	})
-	http.HandleFunc("/segment/", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	http.Handle("/segment/", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		streamHandler.ServeSegmentHTTP(w, r)
-	})
+	})))
 
 	// Start the server
 	logger.Default.Logf("Server is running on port %s...", os.Getenv("PORT"))

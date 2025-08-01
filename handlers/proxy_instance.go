@@ -45,17 +45,23 @@ func NewDefaultProxyInstance() *DefaultProxyInstance {
 }
 
 func (sm *DefaultProxyInstance) LoadBalancer(ctx context.Context, req *http.Request) (*loadbalancer.LoadBalancerResult, error) {
-	instance := loadbalancer.NewLoadBalancerInstance(sm.cm, sm.lbConfig, loadbalancer.WithLogger(sm.logger))
+	// Create a logger with correlation ID
+	requestLogger := sm.logger.WithCorrelationID(ctx)
+
+	instance := loadbalancer.NewLoadBalancerInstance(sm.cm, sm.lbConfig, loadbalancer.WithLogger(requestLogger))
 	return instance.Balance(ctx, req)
 }
 
 func (sm *DefaultProxyInstance) ProxyStream(ctx context.Context, coordinator *buffer.StreamCoordinator,
 	lbResult *loadbalancer.LoadBalancerResult, streamClient *client.StreamClient,
 	exitStatus chan<- int) {
+	// Create a logger with correlation ID
+	requestLogger := sm.logger.WithCorrelationID(ctx)
+
 	instance, err := stream.NewStreamInstance(sm.cm, sm.streamConfig,
-		stream.WithLogger(sm.logger))
+		stream.WithLogger(requestLogger))
 	if err != nil {
-		sm.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "DefaultProxyInstance").
 			Err(err).
 			Msg("Failed to create stream instance")

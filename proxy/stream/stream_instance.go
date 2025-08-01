@@ -64,7 +64,9 @@ func (instance *StreamInstance) ProxyStream(
 	streamClient *client.StreamClient,
 	statusChan chan<- int,
 ) {
-	handler := NewStreamHandler(instance.config, coordinator, instance.logger)
+	// Create a logger with correlation ID
+	requestLogger := instance.logger.WithCorrelationID(ctx)
+	handler := NewStreamHandler(instance.config, coordinator, requestLogger)
 
 	var result StreamResult
 	if lbResult.Response.StatusCode == 206 || strings.HasSuffix(lbResult.URL, ".mp4") {
@@ -82,7 +84,7 @@ func (instance *StreamInstance) ProxyStream(
 	}
 	if result.Error != nil {
 		if result.Status != proxy.StatusIncompatible {
-			instance.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "StreamInstance").
 				Err(result.Error).
 				Msg("Stream handler error")
@@ -91,8 +93,8 @@ func (instance *StreamInstance) ProxyStream(
 
 	if result.Status == proxy.StatusIncompatible && utils.IsAnM3U8Media(lbResult.Response) {
 		if _, ok := instance.Cm.Invalid.Load(lbResult.URL); !ok {
-			instance.logger.Logf("Source is known to have an incompatible media type for an M3U8. Trying a fallback passthrough method.")
-			instance.logger.Logf("Passthrough method will not have any shared buffer. Concurrency support might be unreliable.")
+			requestLogger.Logf("Source is known to have an incompatible media type for an M3U8. Trying a fallback passthrough method.")
+			requestLogger.Logf("Passthrough method will not have any shared buffer. Concurrency support might be unreliable.")
 			instance.Cm.Invalid.Store(lbResult.URL, struct{}{})
 		}
 

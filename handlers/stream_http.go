@@ -54,9 +54,12 @@ func (h *StreamHTTPHandler) extractStreamURL(urlPath string) string {
 func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *client.StreamClient) {
 	r := streamClient.Request
 
+	// Create a logger with correlation ID
+	requestLogger := h.logger.WithCorrelationID(r.Context())
+
 	streamURL := h.extractStreamURL(r.URL.Path)
 	if streamURL == "" {
-		h.logger.Logf("Invalid m3uID for request from %s: %s", r.RemoteAddr, r.URL.Path)
+		requestLogger.Logf("Invalid m3uID for request from %s: %s", r.RemoteAddr, r.URL.Path)
 		return
 	}
 
@@ -69,11 +72,11 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 		lbResult := coordinator.GetWriterLBResult()
 		var err error
 		if lbResult == nil {
-			h.logger.Debugf("No existing shared buffer found for %s", streamURL)
-			h.logger.Debugf("Client %s executing load balancer.", r.RemoteAddr)
+			requestLogger.Debugf("No existing shared buffer found for %s", streamURL)
+			requestLogger.Debugf("Client %s executing load balancer.", r.RemoteAddr)
 			lbResult, err = h.manager.LoadBalancer(ctx, r)
 			if err != nil {
-				h.logger.Logf("Load balancer error (%s): %v", r.URL.Path, err)
+				requestLogger.Logf("Load balancer error (%s): %v", r.URL.Path, err)
 				return
 			}
 		} else {
@@ -84,22 +87,22 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 					coordinator.SetActualURL(lbResult.URL)
 				} else if coordinator.GetActualURL() != lbResult.URL {
 					// The existing coordinator has a different actual URL, try to find or create a coordinator for this URL
-					h.logger.Logf("Existing coordinator has different actual URL, finding/creating new coordinator")
+					requestLogger.Logf("Existing coordinator has different actual URL, finding/creating new coordinator")
 					coordinator = h.manager.GetStreamRegistry().GetOrCreateCoordinator(streamURL, lbResult.URL)
 				} else {
 					if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
-						h.logger.Logf("Existing shared buffer found for %s with same actual URL", streamURL)
+						requestLogger.Logf("Existing shared buffer found for %s with same actual URL", streamURL)
 					}
 				}
 			} else {
 				if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
-					h.logger.Logf("Existing shared buffer found for %s", streamURL)
+					requestLogger.Logf("Existing shared buffer found for %s", streamURL)
 				}
 			}
 		}
 
 		exitStatus := make(chan int)
-		h.logger.Logf("Proxying %s to %s", r.URL.Path, lbResult.URL)
+		requestLogger.Logf("Proxying %s to %s", r.URL.Path, lbResult.URL)
 
 		proxyCtx, cancel := context.WithCancel(ctx)
 		go func() {
@@ -109,10 +112,10 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 
 		select {
 		case <-ctx.Done():
-			h.logger.Logf("Client has closed the stream: %s", r.RemoteAddr)
+			requestLogger.Logf("Client has closed the stream: %s", r.RemoteAddr)
 			return
 		case code := <-exitStatus:
-			if h.handleExitCode(code, r) {
+			if h.handleExitCodeWithLogger(code, r, requestLogger) {
 				return
 			}
 			// Otherwise, retry with a new lbResult.
@@ -120,17 +123,17 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 
 		select {
 		case <-ctx.Done():
-			h.logger.Logf("Client has closed the stream: %s", r.RemoteAddr)
+			requestLogger.Logf("Client has closed the stream: %s", r.RemoteAddr)
 			return
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
 }
 
-func (h *StreamHTTPHandler) handleExitCode(code int, r *http.Request) bool {
+func (h *StreamHTTPHandler) handleExitCodeWithLogger(code int, r *http.Request, requestLogger logger.Logger) bool {
 	switch code {
 	case proxy.StatusIncompatible:
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
 			Str("method", r.Method).
 			Str("remote_addr", r.RemoteAddr).
@@ -139,21 +142,21 @@ func (h *StreamHTTPHandler) handleExitCode(code int, r *http.Request) bool {
 	case proxy.StatusEOF:
 		fallthrough
 	case proxy.StatusServerError:
-		h.logger.Logf("Retrying other servers...")
+		requestLogger.Logf("Retrying other servers...")
 		return false
 	case proxy.StatusM3U8Parsed:
-		h.logger.Debugf("Finished handling M3U8 %s request: %s", r.Method,
+		requestLogger.Debugf("Finished handling M3U8 %s request: %s", r.Method,
 			r.RemoteAddr)
 		return true
 	case proxy.StatusM3U8ParseError:
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
 			Str("method", r.Method).
 			Str("remote_addr", r.RemoteAddr).
 			Msg("Finished handling M3U8 request but failed to parse contents")
 		return false
 	default:
-		h.logger.Logf("Unable to write to client. Assuming stream has been closed: %s",
+		requestLogger.Logf("Unable to write to client. Assuming stream has been closed: %s",
 			r.RemoteAddr)
 		return true
 	}
@@ -162,12 +165,15 @@ func (h *StreamHTTPHandler) handleExitCode(code int, r *http.Request) bool {
 func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClient) {
 	r := streamClient.Request
 
-	h.logger.Debugf("Received request from %s for URL: %s",
+	// Create a logger with correlation ID
+	requestLogger := h.logger.WithCorrelationID(r.Context())
+
+	requestLogger.Debugf("Received request from %s for URL: %s",
 		r.RemoteAddr, r.URL.Path)
 
 	streamId := h.extractStreamURL(r.URL.Path)
 	if streamId == "" {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
 			Str("remote_addr", r.RemoteAddr).
 			Str("url_path", r.URL.Path).
@@ -177,7 +183,7 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	segment, err := failovers.ParseSegmentId(streamId)
 	if err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
 			Str("remote_addr", r.RemoteAddr).
 			Str("url_path", r.URL.Path).
@@ -190,7 +196,7 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	resp, err := utils.HTTPClient.Get(segment.URL)
 	if err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "StreamHTTPHandler").
 			Err(err).
 			Msg("Failed to fetch URL")
@@ -210,9 +216,9 @@ func (h *StreamHTTPHandler) handleSegmentStream(streamClient *client.StreamClien
 
 	if _, err = io.Copy(streamClient, resp.Body); err != nil {
 		if isBrokenPipe(err) {
-			h.logger.Debugf("Client disconnected (broken pipe): %v", err)
+			requestLogger.Debugf("Client disconnected (broken pipe): %v", err)
 		} else {
-			h.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "StreamHTTPHandler").
 				Err(err).
 				Msg("Error copying response body.")

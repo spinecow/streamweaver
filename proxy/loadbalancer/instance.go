@@ -122,9 +122,12 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 		return nil, fmt.Errorf("req.URL cannot be empty")
 	}
 
+	// Create a logger with correlation ID
+	requestLogger := instance.logger.WithCorrelationID(ctx)
+
 	streamId := instance.GetStreamId(req)
 
-	err := instance.fetchBackendUrls(streamId)
+	err := instance.fetchBackendUrls(streamId, requestLogger)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching sources for: %s", streamId)
 	}
@@ -132,13 +135,13 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 	backoff := proxy.NewBackoffStrategy(time.Duration(instance.config.RetryWait)*time.Second, 0)
 
 	for lap := 0; lap < instance.config.MaxRetries || instance.config.MaxRetries == 0; lap++ {
-		instance.logger.Debugf("Stream attempt %d out of %d", lap+1, instance.config.MaxRetries)
+		requestLogger.Debugf("Stream attempt %d out of %d", lap+1, instance.config.MaxRetries)
 
-		result, err := instance.tryAllStreams(ctx, req.Method, streamId)
+		result, err := instance.tryAllStreams(ctx, req.Method, streamId, requestLogger)
 		if err == nil {
 			return result, nil
 		}
-		instance.logger.Debugf("tryAllStreams error: %v", err)
+		requestLogger.Debugf("tryAllStreams error: %v", err)
 
 		if err == context.Canceled {
 			return nil, fmt.Errorf("cancelling load balancer")
@@ -164,13 +167,13 @@ func (instance *LoadBalancerInstance) GetNumTestedIndexes(streamId string) int {
 	return len(streamTested)
 }
 
-func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string) error {
+func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, requestLogger logger.Logger) error {
 	stream, err := instance.slugParser.GetStreamBySlug(streamUrl)
 	if err != nil {
 		return err
 	}
 
-	instance.logger.Debugf("Decoded slug: %v", stream)
+	requestLogger.Debugf("Decoded slug: %v", stream)
 
 	if stream.URLs == nil {
 		stream.URLs = xsync.NewMapOf[string, map[string]string]()
@@ -199,8 +202,8 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string) error {
 	return nil
 }
 
-func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method string, streamId string) (*LoadBalancerResult, error) {
-	instance.logger.Logf("Trying all stream urls for: %s", streamId)
+func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method string, streamId string, requestLogger logger.Logger) (*LoadBalancerResult, error) {
+	requestLogger.Logf("Trying all stream urls for: %s", streamId)
 	if instance.indexProvider == nil {
 		return nil, fmt.Errorf("index provider cannot be nil")
 	}
@@ -233,7 +236,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 
 			innerMap, ok := instance.GetStreamInfo().URLs.Load(index)
 			if !ok {
-				instance.logger.ErrorEvent().
+				requestLogger.ErrorEvent().
 					Str("component", "LoadBalancerInstance").
 					Str("index", index).
 					Str("title", instance.GetStreamInfo().Title).
@@ -241,7 +244,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 				continue
 			}
 
-			result, err := instance.tryStreamUrls(method, streamId, index, innerMap)
+			result, err := instance.tryStreamUrls(method, streamId, index, innerMap, requestLogger)
 			if err == nil {
 				return result, nil
 			}
@@ -262,6 +265,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 	streamId string,
 	index string,
 	urls map[string]string,
+	requestLogger logger.Logger,
 ) (*LoadBalancerResult, error) {
 	if instance.httpClient == nil {
 		return nil, fmt.Errorf("HTTP client cannot be nil")
@@ -287,18 +291,18 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 		}
 
 		if alreadyTested {
-			instance.logger.Debugf("Skipping M3U_%s|%s: marked as previous stream", index, subIndex)
+			requestLogger.Debugf("Skipping M3U_%s|%s: marked as previous stream", index, subIndex)
 			continue
 		}
 
 		if instance.Cm.CheckConcurrency(index) {
-			instance.logger.Debugf("Concurrency limit reached for M3U_%s: %s", index, url)
+			requestLogger.Debugf("Concurrency limit reached for M3U_%s: %s", index, url)
 			continue
 		}
 
 		req, err := http.NewRequest(method, url, nil)
 		if err != nil {
-			instance.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "LoadBalancerInstance").
 				Err(err).
 				Msg("Error creating request")
@@ -308,7 +312,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 
 		resp, err := instance.httpClient.Do(req)
 		if err != nil {
-			instance.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "LoadBalancerInstance").
 				Err(err).
 				Msg("Error fetching stream")
@@ -317,7 +321,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 		}
 
 		if resp == nil {
-			instance.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "LoadBalancerInstance").
 				Msg("Received nil response from HTTP client")
 			instance.markTested(streamId, id)
@@ -325,7 +329,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			instance.logger.ErrorEvent().
+			requestLogger.ErrorEvent().
 				Str("component", "LoadBalancerInstance").
 				Int("status_code", resp.StatusCode).
 				Str("method", method).
@@ -335,7 +339,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 			continue
 		}
 
-		instance.logger.Debugf("Successfully fetched stream from %s with method %s", url, method)
+		requestLogger.Debugf("Successfully fetched stream from %s with method %s", url, method)
 
 		return &LoadBalancerResult{
 			Response: resp,

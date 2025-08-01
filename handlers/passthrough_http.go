@@ -21,9 +21,12 @@ func NewPassthroughHTTPHandler(logger logger.Logger) *PassthroughHTTPHandler {
 }
 
 func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Create a logger with correlation ID
+	requestLogger := h.logger.WithCorrelationID(r.Context())
+
 	const prefix = "/a/"
 	if !strings.HasPrefix(r.URL.Path, prefix) {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Str("url_path", r.URL.Path).
 			Msg("Invalid URL path: missing " + prefix)
@@ -33,7 +36,7 @@ func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	encodedURL := r.URL.Path[len(prefix):]
 	if encodedURL == "" {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Msg("No encoded URL provided in the path")
 		http.Error(w, "No URL provided", http.StatusBadRequest)
@@ -42,7 +45,7 @@ func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	originalURLBytes, err := base64.URLEncoding.DecodeString(encodedURL)
 	if err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Err(err).
 			Msg("Failed to decode original URL")
@@ -54,7 +57,7 @@ func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 
 	proxyReq, err := http.NewRequest(r.Method, originalURL, r.Body)
 	if err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Err(err).
 			Msg("Failed to create new request")
@@ -65,9 +68,14 @@ func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	proxyReq = proxyReq.WithContext(r.Context())
 	proxyReq.Header = r.Header.Clone()
 
+	// Add correlation ID to the downstream request
+	if correlationID, ok := utils.CorrelationIDFromRequest(r); ok {
+		proxyReq.Header.Set("X-Correlation-ID", correlationID)
+	}
+
 	resp, err := utils.HTTPClient.Do(proxyReq)
 	if err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Err(err).
 			Msg("Failed to fetch original URL")
@@ -85,7 +93,7 @@ func (h *PassthroughHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(resp.StatusCode)
 
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		h.logger.ErrorEvent().
+		requestLogger.ErrorEvent().
 			Str("component", "PassthroughHTTPHandler").
 			Err(err).
 			Msg("Failed to write response body")

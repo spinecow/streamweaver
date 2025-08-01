@@ -131,7 +131,7 @@ func setupTestInstance(t *testing.T) (*LoadBalancerInstance, *mockHTTPClient, *m
 		WithSlugParser(slugParser),
 	)
 
-	err := instance.fetchBackendUrls("test-stream")
+	err := instance.fetchBackendUrls("test-stream", logger.Default)
 	if err != nil {
 		t.Fatalf("Failed to create LoadBalancerInstance: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestNewLoadBalancerInstance(t *testing.T) {
 			cfg := NewDefaultLBConfig()
 
 			i := NewLoadBalancerInstance(cm, cfg, WithSlugParser(slugParser))
-			err := i.fetchBackendUrls(tt.streamURL)
+			err := i.fetchBackendUrls(tt.streamURL, logger.Default)
 
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewLoadBalancerInstance() error = %v, wantErr %v", err, tt.wantErr)
@@ -488,7 +488,7 @@ func TestEdgeCaseURLConfigurations(t *testing.T) {
 				WithSlugParser(slugParser),
 			)
 
-			err := i.fetchBackendUrls("test-stream")
+			err := i.fetchBackendUrls("test-stream", logger.Default)
 
 			if (err != nil) != tt.expectErr {
 				t.Errorf("NewLoadBalancerInstance() error = %v, wantErr %v", err, tt.expectErr)
@@ -678,7 +678,7 @@ func TestLoadBalancerConcurrencyPriority(t *testing.T) {
 				WithSlugParser(slugParser),
 			)
 
-			err := instance.fetchBackendUrls("test-stream")
+			err := instance.fetchBackendUrls("test-stream", logger.Default)
 			if err != nil {
 				t.Fatalf("Failed to create LoadBalancerInstance: %v", err)
 			}

@@ -1,6 +1,9 @@
 package logger
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 type Logger interface {
 	Log(format string)
@@ -21,6 +24,7 @@ type Logger interface {
 	// Structured logging methods
 	WithFields(fields map[string]interface{}) Logger
 	WithSensitiveField(key, value string) Logger
+	WithCorrelationID(ctx context.Context) Logger
 	InfoEvent() Event
 	DebugEvent() Event
 	WarnEvent() Event
