@@ -143,7 +143,10 @@ func (r *StreamRegistry) cleanup() {
 		coord := value
 
 		if atomic.LoadInt32(&coord.ClientCount) == 0 {
-			r.logger.Logf("Removing inactive coordinator for stream: %s", streamID)
+			r.logger.InfoEvent().
+				Str("component", "StreamRegistry").
+				Str("stream_id", streamID).
+				Msg("Removing inactive coordinator for stream")
 			r.RemoveCoordinator(streamID)
 		}
 		return true

@@ -93,7 +93,11 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 			requestLogger.Debugf("Client %s executing load balancer.", r.RemoteAddr)
 			lbResult, err = h.manager.LoadBalancer(ctx, r)
 			if err != nil {
-				requestLogger.Logf("Load balancer error (%s): %v", r.URL.Path, err)
+				requestLogger.InfoEvent().
+					Str("component", "StreamHTTPHandler").
+					Str("path", r.URL.Path).
+					Err(err).
+					Msg("Load balancer error")
 				return
 			}
 		} else {
@@ -104,16 +108,28 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 					coordinator.SetActualURL(lbResult.URL)
 				} else if coordinator.GetActualURL() != lbResult.URL {
 					// The existing coordinator has a different actual URL, try to find or create a coordinator for this URL
-					requestLogger.Logf("Existing coordinator has different actual URL, finding/creating new coordinator")
+					requestLogger.InfoEvent().
+						Str("component", "StreamHTTPHandler").
+						Str("stream_id", streamURL).
+						Str("existing_url", coordinator.GetActualURL()).
+						Str("new_url", lbResult.URL).
+						Msg("Existing coordinator has different actual URL, finding/creating new coordinator")
 					coordinator = h.manager.GetStreamRegistry().GetOrCreateCoordinator(streamURL, lbResult.URL)
 				} else {
 					if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
-						requestLogger.Logf("Existing shared buffer found for %s with same actual URL", streamURL)
+						requestLogger.InfoEvent().
+							Str("component", "StreamHTTPHandler").
+							Str("stream_id", streamURL).
+							Str("actual_url", lbResult.URL).
+							Msg("Existing shared buffer found with same actual URL")
 					}
 				}
 			} else {
 				if _, ok := h.manager.GetConcurrencyManager().Invalid.Load(lbResult.URL); !ok {
-					requestLogger.Logf("Existing shared buffer found for %s", streamURL)
+					requestLogger.InfoEvent().
+						Str("component", "StreamHTTPHandler").
+						Str("stream_id", streamURL).
+						Msg("Existing shared buffer found")
 				}
 			}
 		}

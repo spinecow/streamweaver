@@ -34,7 +34,9 @@ func Initialize(ctx context.Context, logger logger.Logger, m3uHandler *handlers.
 	}
 
 	if clearOnBoot == "true" {
-		updateInstance.logger.Log("CLEAR_ON_BOOT enabled. Clearing current cache.")
+		updateInstance.logger.InfoEvent().
+			Str("component", "Updater").
+			Msg("CLEAR_ON_BOOT enabled. Clearing current cache")
 		sourceproc.ClearProcessedM3Us()
 	} else {
 		latestM3u, err := config.GetLatestProcessedM3UPath()
@@ -45,7 +47,10 @@ func Initialize(ctx context.Context, logger logger.Logger, m3uHandler *handlers.
 
 	cronSched := os.Getenv("SYNC_CRON")
 	if len(strings.TrimSpace(cronSched)) == 0 {
-		updateInstance.logger.Log("SYNC_CRON not initialized. Defaulting to 0 0 * * * (12am every day).")
+		updateInstance.logger.InfoEvent().
+			Str("component", "Updater").
+			Str("default_schedule", "0 0 * * *").
+			Msg("SYNC_CRON not initialized. Defaulting to 12am every day")
 		cronSched = "0 0 * * *"
 	}
 
@@ -54,7 +59,10 @@ func Initialize(ctx context.Context, logger logger.Logger, m3uHandler *handlers.
 		go updateInstance.UpdateSources(ctx)
 	})
 	if err != nil {
-		updateInstance.logger.Logf("Error initializing background processes: %v", err)
+		updateInstance.logger.InfoEvent().
+			Str("component", "Updater").
+			Err(err).
+			Msg("Error initializing background processes")
 		return nil, err
 	}
 	c.Start()
@@ -65,7 +73,9 @@ func Initialize(ctx context.Context, logger logger.Logger, m3uHandler *handlers.
 	}
 
 	if syncOnBoot == "true" {
-		updateInstance.logger.Log("SYNC_ON_BOOT enabled. Starting initial M3U update.")
+		updateInstance.logger.InfoEvent().
+			Str("component", "Updater").
+			Msg("SYNC_ON_BOOT enabled. Starting initial M3U update")
 
 		go updateInstance.UpdateSources(ctx)
 	}
@@ -85,9 +95,13 @@ func (instance *Updater) UpdateSources(ctx context.Context) {
 	case <-ctx.Done():
 		return
 	default:
-		instance.logger.Log("Background process: Updating sources...")
+		instance.logger.InfoEvent().
+			Str("component", "Updater").
+			Msg("Background process: Updating sources")
 
-		instance.logger.Log("Background process: Building merged M3U...")
+		instance.logger.InfoEvent().
+			Str("component", "Updater").
+			Msg("Background process: Building merged M3U")
 		if _, ok := os.LookupEnv("BASE_URL"); !ok {
 			instance.logger.ErrorEvent().
 				Str("component", "Updater").

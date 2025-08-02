@@ -25,14 +25,20 @@ type M3UHTTPHandler struct {
 
 func NewM3UHTTPHandler(logger logger.Logger, processedPath string) *M3UHTTPHandler {
 	// Note: This logger is used during initialization, so we can't add correlation ID yet
-	logger.Logf("Creating new M3UHTTPHandler with processedPath: %s", processedPath)
+	logger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Str("processed_path", processedPath).
+		Msg("Creating new M3UHTTPHandler")
 	h := &M3UHTTPHandler{
 		logger:        logger,
 		processedPath: processedPath,
 		credentials:   make(map[string]Credential),
 	}
 	h.loadCredentials()
-	logger.Logf("M3UHTTPHandler created with %d credentials loaded", len(h.credentials))
+	logger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Int("credentials_count", len(h.credentials)).
+		Msg("M3UHTTPHandler created")
 	return h
 }
 
@@ -42,7 +48,9 @@ func (h *M3UHTTPHandler) loadCredentials() {
 	h.logger.Debugf("Loading credentials from environment variable. Length: %d", len(credsStr))
 
 	if credsStr == "" || strings.ToLower(credsStr) == "none" {
-		h.logger.Log("No credentials configured, authentication disabled")
+		h.logger.InfoEvent().
+			Str("component", "M3UHTTPHandler").
+			Msg("No credentials configured, authentication disabled")
 		return
 	}
 
@@ -56,7 +64,10 @@ func (h *M3UHTTPHandler) loadCredentials() {
 		return
 	}
 
-	h.logger.Logf("Successfully parsed %d credentials from environment", len(creds))
+	h.logger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Int("credentials_count", len(creds)).
+		Msg("Successfully parsed credentials from environment")
 	for i, cred := range creds {
 		// Log credential info without sensitive data
 		if cred.Expiration.IsZero() {
@@ -69,7 +80,10 @@ func (h *M3UHTTPHandler) loadCredentials() {
 		h.credentials[strings.ToLower(cred.Username)] = cred
 	}
 
-	h.logger.Logf("Loaded %d credentials into memory", len(h.credentials))
+	h.logger.InfoEvent().
+		Str("component", "M3UHTTPHandler").
+		Int("credentials_count", len(h.credentials)).
+		Msg("Loaded credentials into memory")
 }
 
 func (h *M3UHTTPHandler) SetProcessedPath(path string) {

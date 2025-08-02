@@ -51,7 +51,12 @@ func (cm *ConcurrencyManager) GetConcurrencyStatus(m3uIndex string) (current int
 
 func (cm *ConcurrencyManager) CheckConcurrency(m3uIndex string) bool {
 	current, max, _ := cm.GetConcurrencyStatus(m3uIndex)
-	logger.Default.Logf("Current connections for M3U_%s: %d/%d", m3uIndex, current, max)
+	logger.Default.InfoEvent().
+		Str("component", "ConcurrencyManager").
+		Str("m3u_index", m3uIndex).
+		Int("current_connections", current).
+		Int("max_connections", max).
+		Msg("Checking concurrency status")
 	return current >= max
 }
 
@@ -76,7 +81,12 @@ func (cm *ConcurrencyManager) UpdateConcurrency(m3uIndex string, incr bool) {
 	})
 
 	max := cm.getMaxConcurrency(m3uIndex)
-	logger.Default.Logf("Updated connections for M3U_%s: %d/%d", m3uIndex, current.Load(), max)
+	logger.Default.InfoEvent().
+		Str("component", "ConcurrencyManager").
+		Str("m3u_index", m3uIndex).
+		Int("current_connections", int(current.Load())).
+		Int("max_connections", max).
+		Msg("Updated connection count")
 }
 
 func (cm *ConcurrencyManager) Increment(m3uIndex string) {

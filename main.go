@@ -21,7 +21,9 @@ func main() {
 	streamHandler := handlers.NewStreamHTTPHandler(handlers.NewDefaultProxyInstance(), logger.Default)
 	passthroughHandler := handlers.NewPassthroughHTTPHandler(logger.Default)
 
-	logger.Default.Log("Starting updater...")
+	logger.Default.InfoEvent().
+		Str("component", "main").
+		Msg("Starting updater")
 	_, err := updater.Initialize(ctx, logger.Default, m3uHandler)
 	if err != nil {
 		logger.Default.Fatalf("Error initializing updater: %v", err)
@@ -36,7 +38,9 @@ func main() {
 		}
 	}
 
-	logger.Default.Log("Setting up HTTP handlers...")
+	logger.Default.InfoEvent().
+		Str("component", "main").
+		Msg("Setting up HTTP handlers")
 	// HTTP handlers with correlation ID middleware
 	http.Handle("/playlist.m3u", correlation.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m3uHandler.ServeHTTP(w, r)
@@ -52,9 +56,18 @@ func main() {
 	})))
 
 	// Start the server
-	logger.Default.Logf("Server is running on port %s...", os.Getenv("PORT"))
-	logger.Default.Log("Playlist Endpoint is running (`/playlist.m3u`)")
-	logger.Default.Log("Stream Endpoint is running (`/p/{originalBasePath}/{streamID}.{fileExt}`)")
+	logger.Default.InfoEvent().
+		Str("component", "main").
+		Str("port", os.Getenv("PORT")).
+		Msg("Server is running")
+	logger.Default.InfoEvent().
+		Str("component", "main").
+		Str("endpoint", "/playlist.m3u").
+		Msg("Playlist Endpoint is running")
+	logger.Default.InfoEvent().
+		Str("component", "main").
+		Str("endpoint", "/p/{originalBasePath}/{streamID}.{fileExt}").
+		Msg("Stream Endpoint is running")
 	err = http.ListenAndServe(fmt.Sprintf(":%s", os.Getenv("PORT")), nil)
 	if err != nil {
 		logger.Default.Fatalf("HTTP server error: %v", err)
