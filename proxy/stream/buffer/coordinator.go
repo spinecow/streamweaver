@@ -182,12 +182,14 @@ func (c *StreamCoordinator) GetWriterLBResult() *loadbalancer.LoadBalancerResult
 // RegisterClient registers a new client and returns an error if the stream
 // is no longer active.
 func (c *StreamCoordinator) RegisterClient() error {
+	registrationStartTime := time.Now()
 	state := atomic.LoadInt32(&c.state)
 
 	// If stream is closed but there are no clients, allow reset
 	if state != stateActive && atomic.LoadInt32(&c.ClientCount) == 0 {
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "reset_stream_state").
 			Str("stream_id", c.streamID).
 			Int("previous_state", int(state)).
 			Msg("Resetting closed stream to active state")
@@ -195,45 +197,81 @@ func (c *StreamCoordinator) RegisterClient() error {
 	}
 
 	count := atomic.AddInt32(&c.ClientCount, 1)
+	registrationDuration := time.Since(registrationStartTime)
+	
 	c.logger.DebugEvent().
 		Str("component", "StreamCoordinator").
+		Str("operation", "register_client").
 		Str("stream_id", c.streamID).
 		Int("client_count", int(count)).
+		Dur("registration_duration", registrationDuration).
 		Msg("Client registered")
 	return nil
 }
 
 // UnregisterClient unregisters a client and cleans up resources if it was the last.
 func (c *StreamCoordinator) UnregisterClient() {
+	unregisterStartTime := time.Now()
 	count := atomic.AddInt32(&c.ClientCount, -1)
+	
 	c.logger.InfoEvent().
 		Str("component", "StreamCoordinator").
+		Str("operation", "unregister_client").
 		Str("stream_id", c.streamID).
 		Int("remaining_clients", int(count)).
 		Msg("Client unregistered")
 	
 	if count == 0 {
+		cleanupStartTime := time.Now()
 		c.logger.InfoEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "cleanup_resources").
 			Str("stream_id", c.streamID).
 			Msg("Last client unregistered, cleaning up resources")
+		
 		atomic.StoreInt32(&c.state, stateDraining)
+		
 		// Signal the writer to shut down.
+		signalStartTime := time.Now()
 		select {
 		case c.WriterChan <- struct{}{}:
+			signalDuration := time.Since(signalStartTime)
 			c.logger.DebugEvent().
 				Str("component", "StreamCoordinator").
+				Str("operation", "signal_writer_shutdown").
 				Str("stream_id", c.streamID).
+				Dur("signal_duration", signalDuration).
 				Msg("Sent shutdown signal to writer")
 		default:
+			signalDuration := time.Since(signalStartTime)
 			c.logger.DebugEvent().
 				Str("component", "StreamCoordinator").
+				Str("operation", "signal_writer_shutdown").
 				Str("stream_id", c.streamID).
+				Dur("signal_duration", signalDuration).
 				Msg("Writer channel already has shutdown signal")
 		}
+		
 		c.WriterRespHeader.Store(nil)
+		
+		// Measure buffer cleanup time
+		bufferCleanupStartTime := time.Now()
 		c.ClearBuffer()
+		bufferCleanupDuration := time.Since(bufferCleanupStartTime)
+		
 		c.notifySubscribers()
+		
+		cleanupDuration := time.Since(cleanupStartTime)
+		unregisterDuration := time.Since(unregisterStartTime)
+		
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("operation", "cleanup_complete").
+			Str("stream_id", c.streamID).
+			Dur("buffer_cleanup_duration", bufferCleanupDuration).
+			Dur("cleanup_duration", cleanupDuration).
+			Dur("unregister_duration", unregisterDuration).
+			Msg("Resource cleanup completed")
 	}
 }
 
@@ -260,21 +298,31 @@ func (c *StreamCoordinator) shouldRetry(timeout time.Duration) bool {
 // transferring full buffer ownership to the coordinator and returning the old
 // buffer back to the pool. This prevents any leaks or accidental reuse.
 func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
+	writeStartTime := time.Now()
+	
 	if chunk == nil {
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
+			Dur("write_duration", time.Since(writeStartTime)).
 			Msg("Write: Received nil chunk")
 		return false
 	}
 
+	lockStartTime := time.Now()
 	c.Mu.Lock()
+	lockDuration := time.Since(lockStartTime)
+	
 	// If the stream isn't active, we still Must consume (reset) the chunk.
 	if atomic.LoadInt32(&c.state) != stateActive {
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
 			Int("state", int(atomic.LoadInt32(&c.state))).
+			Dur("lock_duration", lockDuration).
+			Dur("write_duration", time.Since(writeStartTime)).
 			Msg("Write: Stream not active")
 		c.Mu.Unlock()
 		chunk.Reset()
@@ -285,7 +333,10 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 	if !ok || current == nil {
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
+			Dur("lock_duration", lockDuration).
+			Dur("write_duration", time.Since(writeStartTime)).
 			Msg("Write: Current buffer position is nil")
 		c.Mu.Unlock()
 		chunk.Reset()
@@ -295,6 +346,8 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 	// Increment and assign a sequence number.
 	current.seq = atomic.AddInt64(&c.writeSeq, 1)
 
+	// Measure buffer swap time
+	swapStartTime := time.Now()
 	// Perform the swap:
 	// - The ring's current chunk now receives the data from the caller's chunk.
 	// - The caller's chunk is given the ring's old buffer.
@@ -312,13 +365,18 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 	}
 
 	c.Buffer = c.Buffer.Next()
+	swapDuration := time.Since(swapStartTime)
 	
 	c.logger.DebugEvent().
 		Str("component", "StreamCoordinator").
+		Str("operation", "buffer_write").
 		Str("stream_id", c.streamID).
 		Int64("sequence", current.seq).
 		Int("bytes_written", bytesWritten).
 		Int("client_count", int(atomic.LoadInt32(&c.ClientCount))).
+		Dur("lock_duration", lockDuration).
+		Dur("swap_duration", swapDuration).
+		Dur("write_duration", time.Since(writeStartTime)).
 		Msg("Buffer write completed")
 
 	// Mark error state if needed.
@@ -329,20 +387,41 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 		atomic.StoreInt32(&c.state, stateDraining)
 		c.logger.ErrorEvent().
 			Str("component", "StreamCoordinator").
+			Str("operation", "buffer_write_error").
 			Str("stream_id", c.streamID).
 			Int64("sequence", current.seq).
 			Int("status_code", current.Status).
+			Dur("write_duration", time.Since(writeStartTime)).
 			Err(current.Error).
 			Msg("Write: Setting error state")
 	}
 	c.Mu.Unlock()
 
-	// Notify waiting subscribers.
+	// Measure notification time
+	notifyStartTime := time.Now()
 	c.notifySubscribers()
+	notifyDuration := time.Since(notifyStartTime)
+	
 	// Enforce the new ownership rule:
 	// Immediately reset the provided chunk so that its swapped-out buffer is
 	// returned to the pool and the caller does not continue using stale data.
+	resetStartTime := time.Now()
 	chunk.Reset()
+	resetDuration := time.Since(resetStartTime)
+	
+	totalWriteDuration := time.Since(writeStartTime)
+	
+	if bytesWritten > 0 {
+		c.logger.DebugEvent().
+			Str("component", "StreamCoordinator").
+			Str("operation", "buffer_write_complete").
+			Str("stream_id", c.streamID).
+			Int("bytes_written", bytesWritten).
+			Dur("notify_duration", notifyDuration).
+			Dur("reset_duration", resetDuration).
+			Dur("total_write_duration", totalWriteDuration).
+			Msg("Buffer write operation completed")
+	}
 
 	return true
 }
