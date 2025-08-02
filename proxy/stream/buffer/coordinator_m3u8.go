@@ -238,7 +238,11 @@ func (c *StreamCoordinator) parsePlaylist(mediaURL string, content string) (*Pla
 		case !strings.HasPrefix(line, "#") && line != "":
 			segURL, err := url.Parse(line)
 			if err != nil {
-				c.logger.Warnf("Invalid segment URL %q: %v", line, err)
+				c.logger.WarnEvent().
+					Str("component", "StreamBufferCoordinator").
+					Str("segment_url", line).
+					Err(err).
+					Msg("Invalid segment URL")
 				continue
 			}
 

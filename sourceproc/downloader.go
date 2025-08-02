@@ -109,14 +109,24 @@ func handleRemoteURL(m3uURL, idx string, result *SourceDownloaderResult) {
 
 	resp, err := utils.CustomHttpRequest("GET", m3uURL)
 	if err != nil {
-		logger.Default.Warnf("HTTP request error for index %s: %v", idx, err)
+		logger.Default.WarnEvent().
+			Str("component", "SourceProcessor").
+			Str("index", idx).
+			Str("url", m3uURL).
+			Err(err).
+			Msg("HTTP request error")
 		useFallback(fmt.Errorf("HTTP request error: %v", err))
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		logger.Default.Warnf("HTTP status %d for index %s", resp.StatusCode, idx)
+		logger.Default.WarnEvent().
+			Str("component", "SourceProcessor").
+			Str("index", idx).
+			Str("url", m3uURL).
+			Int("status_code", resp.StatusCode).
+			Msg("HTTP status error")
 		useFallback(fmt.Errorf("HTTP status %d and no existing file", resp.StatusCode))
 		return
 	}
@@ -124,14 +134,24 @@ func handleRemoteURL(m3uURL, idx string, result *SourceDownloaderResult) {
 	bufReader := bufio.NewReader(resp.Body)
 	peekBytes, err := bufReader.Peek(7)
 	if err != nil || !strings.HasPrefix(string(peekBytes), "#EXTM3U") {
-		logger.Default.Warnf("Invalid M3U response for index %s. Falling back to existing file: %s", idx, finalPath)
+		logger.Default.WarnEvent().
+			Str("component", "SourceProcessor").
+			Str("index", idx).
+			Str("url", m3uURL).
+			Str("fallback_file", finalPath).
+			Msg("Invalid M3U response, falling back to existing file")
 		useFallback(fmt.Errorf("invalid M3U response and no fallback"))
 		return
 	}
 
 	newFile, err := os.Create(tmpPath)
 	if err != nil {
-		logger.Default.Warnf("Error creating tmp file for index %s: %v", idx, err)
+		logger.Default.WarnEvent().
+			Str("component", "SourceProcessor").
+			Str("index", idx).
+			Str("tmp_path", tmpPath).
+			Err(err).
+			Msg("Error creating temporary file")
 		useFallback(fmt.Errorf("error creating tmp file: %v", err))
 		return
 	}
