@@ -154,8 +154,9 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 		requestLogger.DebugEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
-			Int("attempt", lap+1).
+			Int("attempt_count", lap+1).
 			Int("max_retries", instance.config.MaxRetries).
+			Str("operation", "load_balance_attempt").
 			Msg("Load balancer attempt")
 
 		result, err := instance.tryAllStreams(ctx, req.Method, streamId, requestLogger)
@@ -166,7 +167,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 				Str("selected_url", result.URL).
 				Str("lb_index", result.Index).
 				Str("lb_sub_index", result.SubIndex).
-				Int("attempt", lap+1).
+				Int("attempt_count", lap+1).
 				Dur("duration", time.Since(startTime)).
 				Msg("Load balancing completed successfully")
 			return result, nil
@@ -175,7 +176,8 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 		requestLogger.DebugEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
-			Int("attempt", lap+1).
+			Int("attempt_count", lap+1).
+			Str("operation", "load_balance_attempt").
 			Err(err).
 			Msg("Load balancer attempt failed")
 
@@ -205,7 +207,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 	requestLogger.ErrorEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("stream_id", streamId).
-		Int("total_attempts", instance.config.MaxRetries).
+		Int("attempt_count", instance.config.MaxRetries).
 		Dur("duration", time.Since(startTime)).
 		Msg("Load balancing exhausted all streams")
 	return nil, fmt.Errorf("error fetching stream: exhausted all streams")

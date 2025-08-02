@@ -25,6 +25,7 @@ type Logger interface {
 	WithFields(fields map[string]interface{}) Logger
 	WithSensitiveField(key, value string) Logger
 	WithCorrelationID(ctx context.Context) Logger
+	WithStandardFields(fields *StandardFields) Logger
 	InfoEvent() Event
 	DebugEvent() Event
 	WarnEvent() Event

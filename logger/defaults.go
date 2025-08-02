@@ -111,6 +111,14 @@ func (l *DefaultLogger) WithSensitiveField(key, value string) Logger {
 	return l.WithFields(map[string]interface{}{key: safeValue})
 }
 
+// WithStandardFields creates a new logger instance with standardized fields
+func (l *DefaultLogger) WithStandardFields(fields *StandardFields) Logger {
+	if fields == nil {
+		return l
+	}
+	return l.WithFields(fields.Fields())
+}
+
 // EventWrapper wraps a zerolog.Event to implement our Event interface
 type EventWrapper struct {
 	event *zerolog.Event
