@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/robfig/cron/v3"
 )
@@ -86,30 +87,98 @@ func Initialize(ctx context.Context, logger logger.Logger, m3uHandler *handlers.
 }
 
 func (instance *Updater) UpdateSources(ctx context.Context) {
+	updateStartTime := time.Now()
+	
 	// Ensure only one job is running at a time
+	lockStartTime := time.Now()
 	instance.Lock()
+	lockDuration := time.Since(lockStartTime)
 	defer instance.Unlock()
 
+	instance.logger.InfoEvent().
+		Str("component", "Updater").
+		Str("operation", "update_sources").
+		Dur("lock_duration", lockDuration).
+		Msg("Starting source update process")
+
+	// Measure processor creation time
+	processorCreateStartTime := time.Now()
 	processor := sourceproc.NewProcessor()
+	processorCreateDuration := time.Since(processorCreateStartTime)
+	
 	select {
 	case <-ctx.Done():
+		instance.logger.WarnEvent().
+			Str("component", "Updater").
+			Str("operation", "update_sources").
+			Dur("lock_duration", lockDuration).
+			Dur("processor_create_duration", processorCreateDuration).
+			Dur("update_duration", time.Since(updateStartTime)).
+			Msg("Update cancelled by context")
 		return
 	default:
 		instance.logger.InfoEvent().
 			Str("component", "Updater").
+			Str("operation", "update_sources").
+			Dur("processor_create_duration", processorCreateDuration).
 			Msg("Background process: Updating sources")
 
 		instance.logger.InfoEvent().
 			Str("component", "Updater").
+			Str("operation", "build_m3u").
 			Msg("Background process: Building merged M3U")
+		
+		// Measure environment check time
+		envCheckStartTime := time.Now()
 		if _, ok := os.LookupEnv("BASE_URL"); !ok {
+			envCheckDuration := time.Since(envCheckStartTime)
 			instance.logger.ErrorEvent().
 				Str("component", "Updater").
+				Str("operation", "check_environment").
+				Dur("env_check_duration", envCheckDuration).
+				Dur("update_duration", time.Since(updateStartTime)).
 				Msg("BASE_URL is required for M3U processing to work.")
 			return
 		}
-		if err := processor.Run(ctx, nil); err == nil {
-			instance.m3uHandler.SetProcessedPath(processor.GetResultPath())
+		envCheckDuration := time.Since(envCheckStartTime)
+		
+		// Measure M3U processing time
+		processingStartTime := time.Now()
+		err := processor.Run(ctx, nil)
+		processingDuration := time.Since(processingStartTime)
+		
+		if err == nil {
+			// Measure path setting time
+			pathSetStartTime := time.Now()
+			resultPath := processor.GetResultPath()
+			instance.m3uHandler.SetProcessedPath(resultPath)
+			pathSetDuration := time.Since(pathSetStartTime)
+			
+			updateDuration := time.Since(updateStartTime)
+			instance.logger.InfoEvent().
+				Str("component", "Updater").
+				Str("operation", "update_sources").
+				Str("result_path", resultPath).
+				Int("processed_streams", processor.GetCount()).
+				Dur("lock_duration", lockDuration).
+				Dur("processor_create_duration", processorCreateDuration).
+				Dur("env_check_duration", envCheckDuration).
+				Dur("processing_duration", processingDuration).
+				Dur("path_set_duration", pathSetDuration).
+				Dur("update_duration", updateDuration).
+				Msg("Source update completed successfully")
+		} else {
+			updateDuration := time.Since(updateStartTime)
+			instance.logger.ErrorEvent().
+				Str("component", "Updater").
+				Str("operation", "update_sources").
+				Dur("lock_duration", lockDuration).
+				Dur("processor_create_duration", processorCreateDuration).
+				Dur("env_check_duration", envCheckDuration).
+				Dur("processing_duration", processingDuration).
+				Dur("update_duration", updateDuration).
+				Err(err).
+				Msg("Source update failed")
 		}
 	}
 }

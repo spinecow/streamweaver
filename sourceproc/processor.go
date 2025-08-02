@@ -293,6 +293,8 @@ func (p *M3UProcessor) addStream(stream *StreamInfo) error {
 }
 
 func (p *M3UProcessor) compileM3U(baseURL string) {
+	compileStartTime := time.Now()
+	
 	p.Lock()
 	defer p.Unlock()
 
@@ -302,27 +304,122 @@ func (p *M3UProcessor) compileM3U(baseURL string) {
 		close(p.revalidatingDone)
 	}()
 
+	logger.Default.InfoEvent().
+		Str("component", "M3UProcessor").
+		Str("operation", "compile_m3u").
+		Str("base_url", baseURL).
+		Int("total_streams", int(p.streamCount.Load())).
+		Msg("Starting M3U compilation")
+
+	// Measure header write time
+	headerStartTime := time.Now()
 	_, err := p.writer.WriteString("#EXTM3U\n")
+	headerDuration := time.Since(headerStartTime)
+	
 	if err != nil {
+		logger.Default.ErrorEvent().
+			Str("component", "M3UProcessor").
+			Str("operation", "write_header").
+			Dur("header_duration", headerDuration).
+			Dur("compile_duration", time.Since(compileStartTime)).
+			Err(err).
+			Msg("Failed to write M3U header")
 		p.markCriticalError(err)
 		return
 	}
 
+	logger.Default.DebugEvent().
+		Str("component", "M3UProcessor").
+		Str("operation", "write_header").
+		Dur("header_duration", headerDuration).
+		Msg("M3U header written successfully")
+
+	// Measure entry processing time
+	entriesStartTime := time.Now()
+	entriesProcessed := 0
 	err = p.sortingMgr.GetSortedEntries(func(entry *StreamInfo) {
-		_, writeErr := p.writer.WriteString(formatStreamEntry(baseURL, entry))
+		entryStartTime := time.Now()
+		formattedEntry := formatStreamEntry(baseURL, entry)
+		formatDuration := time.Since(entryStartTime)
+		
+		writeStartTime := time.Now()
+		_, writeErr := p.writer.WriteString(formattedEntry)
+		writeDuration := time.Since(writeStartTime)
+		
 		if writeErr != nil {
-			p.markCriticalError(err)
+			logger.Default.ErrorEvent().
+				Str("component", "M3UProcessor").
+				Str("operation", "write_entry").
+				Str("stream_title", entry.Title).
+				Dur("format_duration", formatDuration).
+				Dur("write_duration", writeDuration).
+				Err(writeErr).
+				Msg("Failed to write stream entry")
+			p.markCriticalError(writeErr)
+			return
+		}
+		
+		entriesProcessed++
+		if entriesProcessed%1000 == 0 {
+			logger.Default.DebugEvent().
+				Str("component", "M3UProcessor").
+				Str("operation", "write_entries_progress").
+				Int("entries_processed", entriesProcessed).
+				Dur("entries_duration", time.Since(entriesStartTime)).
+				Msg("Entry processing progress")
 		}
 	})
+	entriesDuration := time.Since(entriesStartTime)
+	
 	if err != nil {
+		logger.Default.ErrorEvent().
+			Str("component", "M3UProcessor").
+			Str("operation", "process_entries").
+			Int("entries_processed", entriesProcessed).
+			Dur("entries_duration", entriesDuration).
+			Dur("compile_duration", time.Since(compileStartTime)).
+			Err(err).
+			Msg("Failed to process sorted entries")
 		p.markCriticalError(err)
 		return
 	}
 
+	logger.Default.InfoEvent().
+		Str("component", "M3UProcessor").
+		Str("operation", "process_entries").
+		Int("entries_processed", entriesProcessed).
+		Dur("entries_duration", entriesDuration).
+		Msg("All entries processed successfully")
+
+	// Measure flush time
+	flushStartTime := time.Now()
 	if flushErr := p.writer.Flush(); flushErr != nil {
-		p.markCriticalError(err)
+		flushDuration := time.Since(flushStartTime)
+		logger.Default.ErrorEvent().
+			Str("component", "M3UProcessor").
+			Str("operation", "flush_writer").
+			Int("entries_processed", entriesProcessed).
+			Dur("flush_duration", flushDuration).
+			Dur("compile_duration", time.Since(compileStartTime)).
+			Err(flushErr).
+			Msg("Failed to flush writer")
+		p.markCriticalError(flushErr)
 		return
 	}
+	flushDuration := time.Since(flushStartTime)
+	compileDuration := time.Since(compileStartTime)
+
+	logger.Default.InfoEvent().
+		Str("component", "M3UProcessor").
+		Str("operation", "compile_m3u").
+		Str("base_url", baseURL).
+		Int("total_streams", int(p.streamCount.Load())).
+		Int("entries_processed", entriesProcessed).
+		Dur("header_duration", headerDuration).
+		Dur("entries_duration", entriesDuration).
+		Dur("flush_duration", flushDuration).
+		Dur("compile_duration", compileDuration).
+		Msg("M3U compilation completed successfully")
 }
 
 func (p *M3UProcessor) cleanup() {
