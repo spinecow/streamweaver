@@ -147,73 +147,122 @@ func (h *M3UHTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *M3UHTTPHandler) handleAuthWithLogger(r *http.Request, requestLogger logger.Logger) bool {
+	authStartTime := time.Now()
+	
 	requestLogger.DebugEvent().
 		Str("component", "M3UHTTPHandler").
+		Str("operation", "authenticate").
 		Str("client_ip", r.RemoteAddr).
 		Int("credentials_count", len(h.credentials)).
 		Msg("Handling authentication request")
 
 	if len(h.credentials) == 0 {
+		authDuration := time.Since(authStartTime)
 		requestLogger.DebugEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("operation", "authenticate").
 			Str("client_ip", r.RemoteAddr).
+			Dur("auth_duration", authDuration).
 			Msg("No credentials loaded, allowing access")
 		return true // No authentication required
 	}
 
+	// Measure parameter extraction time
+	paramStartTime := time.Now()
 	user, pass := r.URL.Query().Get("username"), r.URL.Query().Get("password")
+	paramDuration := time.Since(paramStartTime)
+	
 	requestLogger.DebugEvent().
 		Str("component", "M3UHTTPHandler").
+		Str("operation", "extract_auth_params").
 		Str("client_ip", r.RemoteAddr).
 		Str("username", user).
+		Dur("param_duration", paramDuration).
 		Msg("Authentication attempt")
 
 	if user == "" || pass == "" {
+		authDuration := time.Since(authStartTime)
 		requestLogger.WarnEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("operation", "authenticate").
 			Str("client_ip", r.RemoteAddr).
 			Str("username", user).
 			Bool("username_provided", user != "").
 			Bool("password_provided", pass != "").
+			Dur("auth_duration", authDuration).
 			Msg("Missing username or password in request")
 		return false
 	}
 
+	// Measure credential lookup time
+	lookupStartTime := time.Now()
 	cred, ok := h.credentials[strings.ToLower(user)]
+	lookupDuration := time.Since(lookupStartTime)
+	
 	if !ok {
+		authDuration := time.Since(authStartTime)
 		requestLogger.WarnEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("operation", "authenticate").
 			Str("client_ip", r.RemoteAddr).
 			Str("username", user).
+			Dur("lookup_duration", lookupDuration).
+			Dur("auth_duration", authDuration).
 			Msg("User not found in credentials")
 		return false
 	}
 
-	// Constant-time comparison for passwords
-	if subtle.ConstantTimeCompare([]byte(pass), []byte(cred.Password)) != 1 {
+	// Measure password comparison time
+	compareStartTime := time.Now()
+	passwordMatch := subtle.ConstantTimeCompare([]byte(pass), []byte(cred.Password)) == 1
+	compareDuration := time.Since(compareStartTime)
+	
+	if !passwordMatch {
+		authDuration := time.Since(authStartTime)
 		requestLogger.WarnEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("operation", "authenticate").
 			Str("client_ip", r.RemoteAddr).
 			Str("username", user).
+			Dur("lookup_duration", lookupDuration).
+			Dur("compare_duration", compareDuration).
+			Dur("auth_duration", authDuration).
 			Msg("Password mismatch for user")
 		return false
 	}
 
-	// Check expiration
-	if !cred.Expiration.IsZero() && time.Now().After(cred.Expiration) {
+	// Measure expiration check time
+	expirationStartTime := time.Now()
+	isExpired := !cred.Expiration.IsZero() && time.Now().After(cred.Expiration)
+	expirationDuration := time.Since(expirationStartTime)
+	
+	if isExpired {
+		authDuration := time.Since(authStartTime)
 		requestLogger.WarnEvent().
 			Str("component", "M3UHTTPHandler").
+			Str("operation", "authenticate").
 			Str("client_ip", r.RemoteAddr).
 			Str("username", user).
 			Time("expiration", cred.Expiration).
+			Dur("lookup_duration", lookupDuration).
+			Dur("compare_duration", compareDuration).
+			Dur("expiration_duration", expirationDuration).
+			Dur("auth_duration", authDuration).
 			Msg("Credential expired for user")
 		return false
 	}
 
+	authDuration := time.Since(authStartTime)
 	requestLogger.InfoEvent().
 		Str("component", "M3UHTTPHandler").
+		Str("operation", "authenticate").
 		Str("client_ip", r.RemoteAddr).
 		Str("username", user).
+		Dur("lookup_duration", lookupDuration).
+		Dur("compare_duration", compareDuration).
+		Dur("expiration_duration", expirationDuration).
+		Dur("param_duration", paramDuration).
+		Dur("auth_duration", authDuration).
 		Msg("Authentication successful")
 	return true
 }

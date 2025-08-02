@@ -89,17 +89,36 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 		lbResult := coordinator.GetWriterLBResult()
 		var err error
 		if lbResult == nil {
-			requestLogger.Debugf("No existing shared buffer found for %s", streamURL)
-			requestLogger.Debugf("Client %s executing load balancer.", r.RemoteAddr)
+			requestLogger.DebugEvent().
+				Str("component", "StreamHTTPHandler").
+				Str("stream_id", streamURL).
+				Str("client_ip", r.RemoteAddr).
+				Msg("No existing shared buffer found, executing load balancer")
+			
+			// Measure load balancer execution time
+			lbStartTime := time.Now()
 			lbResult, err = h.manager.LoadBalancer(ctx, r)
+			lbDuration := time.Since(lbStartTime)
+			
 			if err != nil {
-				requestLogger.InfoEvent().
+				requestLogger.ErrorEvent().
 					Str("component", "StreamHTTPHandler").
+					Str("operation", "load_balancer").
 					Str("path", r.URL.Path).
+					Str("stream_id", streamURL).
+					Dur("lb_duration", lbDuration).
 					Err(err).
 					Msg("Load balancer error")
 				return
 			}
+			
+			requestLogger.InfoEvent().
+				Str("component", "StreamHTTPHandler").
+				Str("operation", "load_balancer").
+				Str("stream_id", streamURL).
+				Str("selected_url", lbResult.URL).
+				Dur("lb_duration", lbDuration).
+				Msg("Load balancer execution completed")
 		} else {
 			// We have an existing coordinator, check if it has the same actual URL
 			if lbResult != nil && lbResult.URL != "" {
@@ -137,18 +156,29 @@ func (h *StreamHTTPHandler) handleStream(ctx context.Context, streamClient *clie
 		exitStatus := make(chan int)
 		requestLogger.InfoEvent().
 			Str("component", "StreamHTTPHandler").
+			Str("operation", "proxy_stream").
 			Str("method", r.Method).
 			Str("url", r.URL.String()).
 			Str("client_ip", r.RemoteAddr).
 			Str("stream_id", streamURL).
 			Str("target_url", lbResult.URL).
-			Msg("Proxying stream request")
+			Msg("Starting stream proxy")
 
+		// Measure stream proxy initialization time
+		proxyInitStartTime := time.Now()
 		proxyCtx, cancel := context.WithCancel(ctx)
 		go func() {
 			defer cancel()
 			h.manager.ProxyStream(proxyCtx, coordinator, lbResult, streamClient, exitStatus)
 		}()
+		proxyInitDuration := time.Since(proxyInitStartTime)
+		
+		requestLogger.DebugEvent().
+			Str("component", "StreamHTTPHandler").
+			Str("operation", "proxy_stream_init").
+			Str("stream_id", streamURL).
+			Dur("proxy_init_duration", proxyInitDuration).
+			Msg("Stream proxy initialized")
 
 		select {
 		case <-ctx.Done():
