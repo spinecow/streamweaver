@@ -129,19 +129,35 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 
 	streamId := instance.GetStreamId(req)
 
+	// Get stream info for channel name
+	streamInfo := instance.GetStreamInfo()
+	channelName := ""
+	if streamInfo != nil {
+		channelName = streamInfo.Title
+	}
+
 	requestLogger.InfoEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("method", req.Method).
 		Str("url", req.URL.String()).
 		Str("client_ip", req.RemoteAddr).
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Msg("Starting load balancing process")
 
 	err := instance.fetchBackendUrls(streamId, requestLogger)
 	if err != nil {
+		// Get stream info for channel name
+		streamInfo := instance.GetStreamInfo()
+		channelName := ""
+		if streamInfo != nil {
+			channelName = streamInfo.Title
+		}
+	
 		requestLogger.ErrorEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Dur("duration", time.Since(startTime)).
 			Err(err).
 			Msg("Error fetching backend URLs")
@@ -151,9 +167,17 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 	backoff := proxy.NewBackoffStrategy(time.Duration(instance.config.RetryWait)*time.Second, 0)
 
 	for lap := 0; lap < instance.config.MaxRetries || instance.config.MaxRetries == 0; lap++ {
+		// Get stream info for channel name
+		streamInfo := instance.GetStreamInfo()
+		channelName := ""
+		if streamInfo != nil {
+			channelName = streamInfo.Title
+		}
+	
 		requestLogger.DebugEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Int("attempt_count", lap+1).
 			Int("max_retries", instance.config.MaxRetries).
 			Str("operation", "load_balance_attempt").
@@ -164,6 +188,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 			requestLogger.InfoEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("selected_url", result.URL).
 				Str("lb_index", result.Index).
 				Str("lb_sub_index", result.SubIndex).
@@ -176,6 +201,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 		requestLogger.DebugEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Int("attempt_count", lap+1).
 			Str("operation", "load_balance_attempt").
 			Err(err).
@@ -185,6 +211,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 			requestLogger.WarnEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Dur("duration", time.Since(startTime)).
 				Msg("Load balancing cancelled by context")
 			return nil, fmt.Errorf("cancelling load balancer")
@@ -198,6 +225,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 			requestLogger.WarnEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Dur("duration", time.Since(startTime)).
 				Msg("Load balancing cancelled during backoff")
 			return nil, fmt.Errorf("cancelling load balancer")
@@ -207,6 +235,7 @@ func (instance *LoadBalancerInstance) Balance(ctx context.Context, req *http.Req
 	requestLogger.ErrorEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Int("attempt_count", instance.config.MaxRetries).
 		Dur("duration", time.Since(startTime)).
 		Msg("Load balancing exhausted all streams")
@@ -224,10 +253,18 @@ func (instance *LoadBalancerInstance) GetNumTestedIndexes(streamId string) int {
 func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, requestLogger logger.Logger) error {
 	fetchStartTime := time.Now()
 	
+	// Get stream info for channel name
+	streamInfo := instance.GetStreamInfo()
+	channelName := ""
+	if streamInfo != nil {
+		channelName = streamInfo.Title
+	}
+
 	requestLogger.DebugEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("operation", "fetch_backend_urls").
 		Str("stream_url", streamUrl).
+		Str("channel_name", channelName).
 		Msg("Starting backend URL fetch")
 
 	// Measure slug parsing time
@@ -240,6 +277,7 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 			Str("component", "LoadBalancerInstance").
 			Str("operation", "parse_slug").
 			Str("stream_url", streamUrl).
+			Str("channel_name", channelName).
 			Dur("slug_parse_duration", slugParseDuration).
 			Dur("fetch_duration", time.Since(fetchStartTime)).
 			Err(err).
@@ -251,6 +289,7 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 		Str("component", "LoadBalancerInstance").
 		Str("operation", "parse_slug").
 		Str("stream_url", streamUrl).
+		Str("channel_name", channelName).
 		Dur("slug_parse_duration", slugParseDuration).
 		Msg("Successfully decoded slug")
 
@@ -266,6 +305,7 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 			Str("component", "LoadBalancerInstance").
 			Str("operation", "validate_urls").
 			Str("stream_url", streamUrl).
+			Str("channel_name", channelName).
 			Dur("validation_duration", validationDuration).
 			Dur("fetch_duration", time.Since(fetchStartTime)).
 			Msg("Stream has no URLs configured")
@@ -290,6 +330,7 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 			Str("component", "LoadBalancerInstance").
 			Str("operation", "validate_urls").
 			Str("stream_url", streamUrl).
+			Str("channel_name", channelName).
 			Int("total_url_count", urlCount).
 			Dur("validation_duration", validationDuration).
 			Dur("fetch_duration", time.Since(fetchStartTime)).
@@ -304,6 +345,7 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 		Str("component", "LoadBalancerInstance").
 		Str("operation", "fetch_backend_urls").
 		Str("stream_url", streamUrl).
+		Str("channel_name", channelName).
 		Int("index_count", stream.URLs.Size()).
 		Int("total_url_count", urlCount).
 		Dur("slug_parse_duration", slugParseDuration).
@@ -315,9 +357,17 @@ func (instance *LoadBalancerInstance) fetchBackendUrls(streamUrl string, request
 }
 
 func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method string, streamId string, requestLogger logger.Logger) (*LoadBalancerResult, error) {
+	// Get stream info for channel name
+	streamInfo := instance.GetStreamInfo()
+	channelName := ""
+	if streamInfo != nil {
+		channelName = streamInfo.Title
+	}
+
 	requestLogger.InfoEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Str("method", method).
 		Msg("Trying all stream URLs")
 		
@@ -329,6 +379,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 		requestLogger.ErrorEvent().
 			Str("component", "LoadBalancerInstance").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Msg("No M3U indexes available")
 		return nil, fmt.Errorf("no M3U indexes available")
 	}
@@ -336,6 +387,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 	requestLogger.DebugEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Int("available_indexes", len(m3uIndexes)).
 		Msg("Available M3U indexes for load balancing")
 
@@ -364,6 +416,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 			requestLogger.DebugEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Int("concurrency_priority", instance.Cm.ConcurrencyPriorityValue(index)).
 				Msg("Trying M3U index")
@@ -373,6 +426,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 				requestLogger.ErrorEvent().
 					Str("component", "LoadBalancerInstance").
 					Str("stream_id", streamId).
+					Str("channel_name", channelName).
 					Str("index", index).
 					Str("title", instance.GetStreamInfo().Title).
 					Msg("Channel not found from M3U")
@@ -382,6 +436,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 			requestLogger.DebugEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Int("url_count", len(innerMap)).
 				Msg("Found URLs in M3U index")
@@ -391,6 +446,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 				requestLogger.InfoEvent().
 					Str("component", "LoadBalancerInstance").
 					Str("stream_id", streamId).
+					Str("channel_name", channelName).
 					Str("selected_index", index).
 					Str("selected_url", result.URL).
 					Msg("Successfully selected stream URL")
@@ -400,6 +456,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 			requestLogger.DebugEvent().
 				Str("component", "LoadBalancerInstance").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Err(err).
 				Msg("Failed to get stream from index")
@@ -415,6 +472,7 @@ func (instance *LoadBalancerInstance) tryAllStreams(ctx context.Context, method 
 	requestLogger.WarnEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Int("tried_indexes", len(m3uIndexes)).
 		Msg("No available streams found")
 	return nil, fmt.Errorf("no available streams")
@@ -433,10 +491,18 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 		return nil, fmt.Errorf("HTTP client cannot be nil")
 	}
 
+	// Get stream info for channel name
+	streamInfo := instance.GetStreamInfo()
+	channelName := ""
+	if streamInfo != nil {
+		channelName = streamInfo.Title
+	}
+
 	requestLogger.DebugEvent().
 		Str("component", "LoadBalancerInstance").
 		Str("operation", "try_stream_urls").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Str("index", index).
 		Int("url_count", len(urls)).
 		Msg("Starting to try stream URLs")
@@ -473,6 +539,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "skip_tested_url").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("sub_index", subIndex).
 				Str("url", url).
@@ -490,6 +557,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "skip_concurrency_limit").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("url", url).
 				Dur("concurrency_check_duration", concurrencyCheckDuration).
@@ -503,6 +571,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 			Str("component", "LoadBalancerInstance").
 			Str("operation", "test_stream_url").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Str("index", index).
 			Str("sub_index", subIndex).
 			Str("method", method).
@@ -519,6 +588,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "create_http_request").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("sub_index", subIndex).
 				Str("method", method).
@@ -541,6 +611,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "http_request").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("sub_index", subIndex).
 				Str("method", method).
@@ -561,6 +632,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "http_request").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("sub_index", subIndex).
 				Str("url", url).
@@ -576,6 +648,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 				Str("component", "LoadBalancerInstance").
 				Str("operation", "http_request").
 				Str("stream_id", streamId).
+				Str("channel_name", channelName).
 				Str("index", index).
 				Str("sub_index", subIndex).
 				Int("status_code", resp.StatusCode).
@@ -595,6 +668,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 			Str("component", "LoadBalancerInstance").
 			Str("operation", "stream_url_success").
 			Str("stream_id", streamId).
+			Str("channel_name", channelName).
 			Str("index", index).
 			Str("sub_index", subIndex).
 			Str("method", method).
@@ -622,6 +696,7 @@ func (instance *LoadBalancerInstance) tryStreamUrls(
 		Str("component", "LoadBalancerInstance").
 		Str("operation", "try_stream_urls").
 		Str("stream_id", streamId).
+		Str("channel_name", channelName).
 		Str("index", index).
 		Int("urls_tested", urlCount).
 		Dur("try_urls_duration", tryUrlsDuration).

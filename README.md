@@ -147,8 +147,9 @@ Access the generated M3U playlist at `http://<server ip>:8080/playlist.m3u`.
 ### Logging Configs
 | ENV VAR                     | Description                                              | Default Value | Possible Values                                |
 |-----------------------------|----------------------------------------------------------|---------------|------------------------------------------------|
-| DEBUG                | Set if verbose logging is enabled | false    | true/false   |
-| SAFE_LOGS | Set if sensitive info are removed from logs. Always enable this if submitting a log publicly. | false    | true/false   |
+| LOG_FORMAT           | Set the log output format | console    | console, json   |
+| LOG_LEVEL            | Set the minimum log level | info    | debug, info, warn, error, fatal   |
+| SAFE_LOGS            | Set if sensitive info are removed from logs. Always enable this if submitting a log publicly. | false    | true/false   |
 
 ## How does the shared buffer work?
 
@@ -226,3 +227,187 @@ And if you like the project, but just don't have time to contribute, that's fine
 - Star the project
 - Tweet about it
 - Mention the project and tell your friends/colleagues
+
+## Structured Logging
+
+The application now supports structured logging with JSON output format. This enhancement provides better log analysis capabilities and improved debugging.
+
+### Logger Interface
+
+The enhanced logger interface provides both backward compatibility and new structured logging methods:
+
+```go
+type Logger interface {
+    // Existing methods for backward compatibility
+    Log(format string)
+    Logf(format string, v ...any)
+    Warn(format string)
+    Warnf(format string, v ...any)
+    Debug(format string)
+    Debugf(format string, v ...any)
+    Error(format string)
+    Errorf(format string, v ...any)
+    Fatal(format string)
+    Fatalf(format string, v ...any)
+    
+    // New structured logging methods
+    WithFields(fields map[string]interface{}) Logger
+    WithSensitiveField(key, value string) Logger
+    WithCorrelationID(ctx context.Context) Logger
+    WithStandardFields(fields *StandardFields) Logger
+    InfoEvent() Event
+    DebugEvent() Event
+    WarnEvent() Event
+    ErrorEvent() Event
+    FatalEvent() Event
+}
+
+type Event interface {
+    // Field methods matching zerolog's API
+    Str(key, val string) Event
+    Int(key string, i int) Event
+    Int64(key string, i int64) Event
+    Float64(key string, f float64) Event
+    Bool(key string, b bool) Event
+    Time(key string, t time.Time) Event
+    Dur(key string, d time.Duration) Event
+    Err(err error) Event
+    
+    // Message methods
+    Msg(msg string)
+    Msgf(format string, v ...interface{})
+}
+```
+
+### Configuration Options
+
+The logging system can be configured using environment variables:
+
+Environment Variable | Description | Default Value | Possible Values |
+|---------------------|-------------|---------------|-----------------|
+`LOG_FORMAT` | Output format for logs | `console` | `console`, `json` |
+`LOG_LEVEL` | Minimum log level to output | `info` | `debug`, `info`, `warn`, `error`, `fatal` |
+`SAFE_LOGS` | Enable automatic redaction of sensitive information | `false` | `true`, `false` |
+
+### Usage Examples
+
+#### Basic Structured Logging
+
+```go
+// Simple structured log
+logger.Default.InfoEvent().
+    Str("component", "StreamHandler").
+    Str("operation", "client_connect").
+    Str("stream_id", "channel-123").
+    Int("client_count", 5).
+    Dur("duration", time.Millisecond * 200).
+    Msg("Client connected successfully")
+```
+
+#### Using Standardized Fields (Recommended)
+
+```go
+// Create standardized fields
+fields := logger.NewStandardFields().
+    WithComponent("StreamHandler").
+    WithOperation("client_connect").
+    WithStreamID("channel-123").
+    WithClientCount(5).
+    WithDuration(time.Millisecond * 200)
+
+// Use with logger
+requestLogger := logger.Default.WithStandardFields(fields)
+requestLogger.InfoEvent().Msg("Client connected successfully")
+```
+
+#### Contextual Logging with Fields
+
+```go
+// Add contextual fields to a logger
+contextualLogger := logger.Default.WithFields(map[string]interface{}{
+    "component": "StreamHandler",
+    "stream_id": "channel-123",
+})
+
+// Use throughout request handling
+contextualLogger.InfoEvent().
+    Str("operation", "client_connect").
+    Int("client_count", 5).
+    Msg("Client connected")
+```
+
+#### Sensitive Field Handling
+
+```go
+// Handle sensitive information with automatic redaction
+authLogger := logger.Default.WithSensitiveField("auth_token", authToken)
+authLogger.InfoEvent().
+    Str("component", "Authentication").
+    Msg("User authenticated successfully")
+```
+
+#### Request Tracing with Correlation IDs
+
+```go
+// Add correlation ID for request tracing
+requestLogger := logger.Default.WithCorrelationID(ctx)
+requestLogger.InfoEvent().
+    Str("component", "RequestHandler").
+    Str("operation", "process_request").
+    Msg("Processing request")
+```
+
+### Standardized Field Names
+
+The application uses standardized field names for consistency across all services:
+
+#### Request/Response Fields
+- `correlation_id` (string): Unique identifier for request tracing
+- `method` (string): HTTP method (GET, POST, etc.)
+- `url` (string): Full URL for HTTP operations
+- `path` (string): URL path component
+- `status_code` (int): HTTP status code
+- `duration` (time.Duration): Operation duration
+- `client_ip` (string): Client IP address
+- `user_agent` (string): Client user agent string
+
+#### Component/Service Fields
+- `component` (string): Component/service that generated the log
+- `operation` (string): Specific operation being performed
+- `error` (string): Error message when operation fails
+- `error_type` (string): Classification of error type
+
+#### Stream-Related Fields
+- `stream_id` (string): Identifier for stream-related operations
+- `channel_name` (string): IPTV channel name
+- `playlist_url` (string): M3U playlist URL
+- `segment_url` (string): Media segment URL
+- `buffer_status` (string): Status of stream buffering
+- `client_count` (int): Number of connected clients to a stream
+- `stream_type` (string): Type of stream (m3u8, media, etc.)
+
+#### Load Balancer Fields
+- `load_balancer_result` (string): Result from load balancing decisions
+- `target_url` (string): Selected target URL from load balancer
+- `attempt_count` (int): Number of attempts made
+- `failover_reason` (string): Reason for failover
+
+#### Performance Fields
+- `latency` (time.Duration): Network latency
+- `bytes_transferred` (int64): Number of bytes transferred
+- `response_size` (int64): Size of response in bytes
+- `request_size` (int64): Size of request in bytes
+
+#### System Fields
+- `memory_usage` (int64): Memory usage in bytes
+- `cpu_usage` (float64): CPU usage percentage
+- `goroutine_count` (int): Number of active goroutines
+
+### Best Practices
+
+1. **Always use standardized field names** - This ensures consistency across the application
+2. **Include component and operation fields** - This helps with filtering and debugging
+3. **Add correlation IDs for requests** - This enables request tracing across components
+4. **Include performance metrics** - Add duration, counts, and sizes where relevant
+5. **Use descriptive operation names** - Operations should clearly indicate what's happening
+6. **Use appropriate data types** - Follow the type specifications in the reference

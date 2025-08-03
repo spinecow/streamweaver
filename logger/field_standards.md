@@ -2,41 +2,15 @@
 
 This document defines the standardized field names and data types for consistent logging across all components in the StreamWeaver application.
 
+## Overview
+
+The StreamWeaver application uses structured logging with standardized field names to ensure consistency across all services. This approach enables better log analysis, filtering, and debugging capabilities.
+
+This document serves as the technical specification for field standards. For a quick reference, see the [Field Naming Reference](../FIELD_NAMING_REFERENCE.md). For detailed usage guidelines, see the [Field Naming Guide](field_naming_guide.md).
+
 ## Field Naming Convention
 
 All field names must use `snake_case` for consistency and readability.
-
-## Current Field Inconsistencies Found
-
-### Component Field Variations
-- ✅ `component` (consistent across most files)
-
-### Operation/Action Field Variations  
-- `operation` (used in some places)
-- `parameter` (in error scenarios)
-- Need standardization for action-specific fields
-
-### URL/Address Field Variations
-- `url` (used in some places)
-- `target_url` (in load balancer)
-- `actual_url` (in stream registry)
-- `playlist_url` (implied in contexts)
-- `segment_url` (implied in contexts)
-
-### Duration/Time Field Variations
-- `duration` (implied in some contexts)
-- `elapsed` (in some tests)
-- Various duration types need standardization
-
-### Count/Number Field Variations
-- `client_count` (used in stream contexts)
-- `attempt` (in load balancer)
-- `client_number` (in tests)
-- `remaining_clients` (in cleanup)
-
-### Error Field Variations
-- `error` (needs to be standardized)
-- `error_type` (needs to be added)
 
 ## Standardized Fields
 
@@ -89,7 +63,6 @@ All field names must use `snake_case` for consistency and readability.
 3. **Null Values**: Use appropriate zero values for optional fields
 4. **Nesting**: Avoid deeply nested field structures; prefer flat field names
 5. **Units**: Include units in field names when ambiguous (e.g., `duration_ms` vs `duration`)
-
 ## Migration Guidelines
 
 When updating existing log statements:

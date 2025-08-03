@@ -11,6 +11,7 @@ import (
 	"m3u-stream-merger/proxy/loadbalancer"
 	"m3u-stream-merger/proxy/stream/config"
 	"m3u-stream-merger/store"
+	"m3u-stream-merger/sourceproc"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -113,6 +114,15 @@ func (c *StreamCoordinator) GetActualURL() string {
 	return c.actualURL
 }
 
+// getChannelName returns the channel name from the stream ID
+func (c *StreamCoordinator) getChannelName() string {
+	streamInfo, _ := sourceproc.DecodeSlug(c.streamID)
+	if streamInfo != nil {
+		return streamInfo.Title
+	}
+	return ""
+}
+
 // subscribe returns the current broadcast channel.
 func (c *StreamCoordinator) subscribe() <-chan struct{} {
 	c.Mu.RLock()
@@ -130,10 +140,24 @@ func (c *StreamCoordinator) notifySubscribers() {
 	c.Mu.Unlock()
 }
 
-func NewStreamCoordinator(streamID string, config *config.StreamConfig, cm *store.ConcurrencyManager, logger logger.Logger) *StreamCoordinator {
+// NewStreamCoordinator creates a new StreamCoordinator instance
+func NewStreamCoordinator(
+	streamID string,
+	config *config.StreamConfig,
+	cm *store.ConcurrencyManager,
+	logger logger.Logger,
+) *StreamCoordinator {
+	// Get channel name from stream ID (slug)
+	streamInfo, _ := sourceproc.DecodeSlug(streamID)
+	channelName := ""
+	if streamInfo != nil {
+		channelName = streamInfo.Title
+	}
+	
 	logger.DebugEvent().
 		Str("component", "StreamCoordinator").
 		Str("stream_id", streamID).
+		Str("channel_name", channelName).
 		Int("buffer_size", config.SharedBufferSize).
 		Int("chunk_size", config.ChunkSize).
 		Msg("Initializing new StreamCoordinator")
@@ -161,6 +185,7 @@ func NewStreamCoordinator(streamID string, config *config.StreamConfig, cm *stor
 	logger.DebugEvent().
 		Str("component", "StreamCoordinator").
 		Str("stream_id", streamID).
+		Str("channel_name", channelName).
 		Int("buffer_size", config.SharedBufferSize).
 		Int("chunk_size", config.ChunkSize).
 		Msg("StreamCoordinator initialized successfully")
@@ -191,6 +216,7 @@ func (c *StreamCoordinator) RegisterClient() error {
 			Str("component", "StreamCoordinator").
 			Str("operation", "reset_stream_state").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Int("previous_state", int(state)).
 			Msg("Resetting closed stream to active state")
 		atomic.StoreInt32(&c.state, stateActive)
@@ -203,6 +229,7 @@ func (c *StreamCoordinator) RegisterClient() error {
 		Str("component", "StreamCoordinator").
 		Str("operation", "register_client").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Int("client_count", int(count)).
 		Dur("registration_duration", registrationDuration).
 		Msg("Client registered")
@@ -218,6 +245,7 @@ func (c *StreamCoordinator) UnregisterClient() {
 		Str("component", "StreamCoordinator").
 		Str("operation", "unregister_client").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Int("remaining_clients", int(count)).
 		Msg("Client unregistered")
 
@@ -227,6 +255,7 @@ func (c *StreamCoordinator) UnregisterClient() {
 			Str("component", "StreamCoordinator").
 			Str("operation", "cleanup_resources").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Msg("Last client unregistered, cleaning up resources")
 
 		atomic.StoreInt32(&c.state, stateDraining)
@@ -240,6 +269,7 @@ func (c *StreamCoordinator) UnregisterClient() {
 				Str("component", "StreamCoordinator").
 				Str("operation", "signal_writer_shutdown").
 				Str("stream_id", c.streamID).
+				Str("channel_name", c.getChannelName()).
 				Dur("signal_duration", signalDuration).
 				Msg("Sent shutdown signal to writer")
 		default:
@@ -248,6 +278,7 @@ func (c *StreamCoordinator) UnregisterClient() {
 				Str("component", "StreamCoordinator").
 				Str("operation", "signal_writer_shutdown").
 				Str("stream_id", c.streamID).
+				Str("channel_name", c.getChannelName()).
 				Dur("signal_duration", signalDuration).
 				Msg("Writer channel already has shutdown signal")
 		}
@@ -268,6 +299,7 @@ func (c *StreamCoordinator) UnregisterClient() {
 			Str("component", "StreamCoordinator").
 			Str("operation", "cleanup_complete").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Dur("buffer_cleanup_duration", bufferCleanupDuration).
 			Dur("cleanup_duration", cleanupDuration).
 			Dur("unregister_duration", unregisterDuration).
@@ -286,6 +318,8 @@ func (c *StreamCoordinator) shouldTimeout(lastSuccess time.Time, timeout time.Du
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
 			Str("operation", "should_timeout").
+			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Dur("time_since_last_success", time.Since(lastSuccess)).
 			Msg("Stream timed out")
 	}
@@ -309,6 +343,7 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			Str("component", "StreamCoordinator").
 			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Dur("write_duration", time.Since(writeStartTime)).
 			Msg("Write: Received nil chunk")
 		return false
@@ -324,6 +359,7 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			Str("component", "StreamCoordinator").
 			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Int("state", int(atomic.LoadInt32(&c.state))).
 			Dur("lock_duration", lockDuration).
 			Dur("write_duration", time.Since(writeStartTime)).
@@ -339,6 +375,7 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			Str("component", "StreamCoordinator").
 			Str("operation", "buffer_write").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Dur("lock_duration", lockDuration).
 			Dur("write_duration", time.Since(writeStartTime)).
 			Msg("Write: Current buffer position is nil")
@@ -375,6 +412,7 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 		Str("component", "StreamCoordinator").
 		Str("operation", "buffer_write").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Int64("sequence", current.seq).
 		Int("bytes_written", bytesWritten).
 		Int("client_count", int(atomic.LoadInt32(&c.ClientCount))).
@@ -393,12 +431,14 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			Str("component", "StreamCoordinator").
 			Str("operation", "buffer_write_error").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Int64("sequence", current.seq).
 			Int("status_code", current.Status).
 			Dur("write_duration", time.Since(writeStartTime)).
 			Err(current.Error).
 			Msg("Write: Setting error state")
 	}
+
 	c.Mu.Unlock()
 
 	// Measure notification time
@@ -420,6 +460,7 @@ func (c *StreamCoordinator) Write(chunk *ChunkData) bool {
 			Str("component", "StreamCoordinator").
 			Str("operation", "buffer_write_complete").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Int("bytes_written", bytesWritten).
 			Dur("notify_duration", notifyDuration).
 			Dur("reset_duration", resetDuration).
@@ -439,6 +480,7 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
 			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Msg("ReadChunks: fromPosition is nil, using current buffer")
 		fromPosition = c.Buffer
 	}
@@ -450,6 +492,7 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 			c.logger.DebugEvent().
 				Str("component", "StreamCoordinator").
 				Str("stream_id", c.streamID).
+				Str("channel_name", c.getChannelName()).
 				Int64("client_seq", cd.seq).
 				Int64("min_seq", minSeq).
 				Int64("current_seq", currentWriteSeq).
@@ -504,6 +547,7 @@ func (c *StreamCoordinator) ReadChunks(fromPosition *ring.Ring) (
 	c.logger.DebugEvent().
 		Str("component", "StreamCoordinator").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Int("chunks_read", len(chunks)).
 		Int("total_bytes", totalBytes).
 		Bool("error_found", errorFound).
@@ -552,6 +596,8 @@ func (c *StreamCoordinator) writeError(err error, status int) {
 		c.logger.DebugEvent().
 			Str("component", "StreamCoordinator").
 			Str("operation", "write_error").
+			Str("stream_id", c.streamID).
+			Str("channel_name", c.getChannelName()).
 			Msg("Failed to create new chunk")
 		return
 	}
@@ -585,6 +631,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 	c.logger.DebugEvent().
 		Str("component", "StreamCoordinator").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Int("chunk_size", c.config.ChunkSize).
 		Dur("timeout", timeout).
 		Msg("Starting stream read and write loop")
@@ -595,6 +642,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 			c.logger.DebugEvent().
 				Str("component", "StreamCoordinator").
 				Str("stream_id", c.streamID).
+				Str("channel_name", c.getChannelName()).
 				Dur("duration", time.Since(startTime)).
 				Int("total_bytes_read", totalBytesRead).
 				Int("read_count", readCount).
@@ -605,6 +653,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 				c.logger.ErrorEvent().
 					Str("component", "StreamCoordinator").
 					Str("stream_id", c.streamID).
+					Str("channel_name", c.getChannelName()).
 					Dur("duration", time.Since(startTime)).
 					Dur("time_since_success", time.Since(lastSuccess)).
 					Dur("timeout", timeout).
@@ -621,6 +670,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 				c.logger.DebugEvent().
 					Str("component", "StreamCoordinator").
 					Str("stream_id", c.streamID).
+					Str("channel_name", c.getChannelName()).
 					Int("bytes_read", n).
 					Int("total_bytes_read", totalBytesRead).
 					Int("read_count", readCount).
@@ -633,6 +683,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 					c.logger.DebugEvent().
 						Str("component", "StreamCoordinator").
 						Str("stream_id", c.streamID).
+						Str("channel_name", c.getChannelName()).
 						Int("zero_reads", zeroReads).
 						Dur("duration", time.Since(startTime)).
 						Msg("Too many zero reads, ending stream")
@@ -651,6 +702,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 				c.logger.DebugEvent().
 					Str("component", "StreamCoordinator").
 					Str("stream_id", c.streamID).
+					Str("channel_name", c.getChannelName()).
 					Dur("duration", time.Since(startTime)).
 					Int("total_bytes_read", totalBytesRead).
 					Msg("Stream ended with EOF after final chunk")
@@ -662,6 +714,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 					c.logger.DebugEvent().
 						Str("component", "StreamCoordinator").
 						Str("stream_id", c.streamID).
+						Str("channel_name", c.getChannelName()).
 						Err(err).
 						Msg("Stream read error, retrying with backoff")
 					backoff.Sleep(ctx)
@@ -671,6 +724,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 				c.logger.ErrorEvent().
 					Str("component", "StreamCoordinator").
 					Str("stream_id", c.streamID).
+					Str("channel_name", c.getChannelName()).
 					Err(err).
 					Dur("duration", time.Since(startTime)).
 					Int("total_bytes_read", totalBytesRead).
@@ -682,6 +736,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 				c.logger.ErrorEvent().
 					Str("component", "StreamCoordinator").
 					Str("stream_id", c.streamID).
+					Str("channel_name", c.getChannelName()).
 					Err(err).
 					Int("chunk_size", n).
 					Msg("Error processing chunk")
@@ -699,6 +754,7 @@ func (c *StreamCoordinator) readAndWriteStream(
 	c.logger.DebugEvent().
 		Str("component", "StreamCoordinator").
 		Str("stream_id", c.streamID).
+		Str("channel_name", c.getChannelName()).
 		Dur("duration", time.Since(startTime)).
 		Int("total_bytes_read", totalBytesRead).
 		Int("read_count", readCount).

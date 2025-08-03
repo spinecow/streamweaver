@@ -2,6 +2,10 @@
 
 This document provides a quick reference for standardized field names used in logging across the StreamWeaver application.
 
+## Overview
+
+The StreamWeaver application uses structured logging with standardized field names to ensure consistency across all services. This approach enables better log analysis, filtering, and debugging capabilities.
+
 ## Quick Reference
 
 ### Request/Response Fields
@@ -93,6 +97,74 @@ logger.Default.InfoEvent().
     Msg("Client connected successfully")
 ```
 
+## Field Categories
+
+### Request/Response Fields
+These fields are used for HTTP request/response logging:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `correlation_id` | string | Unique identifier for request tracing | `"req-12345-abcde"` |
+| `method` | string | HTTP method | `"GET"`, `"POST"` |
+| `url` | string | Full URL for HTTP operations | `"http://example.com/api/streams"` |
+| `path` | string | URL path component | `"/api/streams"` |
+| `status_code` | int | HTTP status code | `200`, `404`, `500` |
+| `duration` | time.Duration | Operation duration | `time.Millisecond * 150` |
+| `client_ip` | string | Client IP address | `"192.168.1.100"` |
+| `user_agent` | string | Client user agent string | `"VLC/3.0.16"` |
+
+### Component/Service Fields
+These fields identify the component or service generating the log:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `component` | string | Component/service that generated the log | `"StreamHandler"`, `"LoadBalancer"` |
+| `operation` | string | Specific operation being performed | `"client_connect"`, `"url_validation"` |
+| `error` | string | Error message when operation fails | `"connection timeout"` |
+| `error_type` | string | Classification of error type | `"network_error"`, `"validation_error"` |
+
+### Stream-Related Fields
+These fields are specific to stream operations:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `stream_id` | string | Identifier for stream-related operations | `"channel-123"` |
+| `channel_name` | string | IPTV channel name | `"HBO"`, `"CNN"` |
+| `playlist_url` | string | M3U playlist URL | `"http://server.com/playlist.m3u8"` |
+| `segment_url` | string | Media segment URL | `"http://server.com/segment001.ts"` |
+| `buffer_status` | string | Status of stream buffering | `"buffering"`, `"ready"`, `"empty"` |
+| `client_count` | int | Number of connected clients to a stream | `5`, `12` |
+| `stream_type` | string | Type of stream | `"m3u8"`, `"media"`, `"live"` |
+
+### Load Balancer Fields
+These fields are specific to load balancer operations:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `load_balancer_result` | string | Result from load balancing decisions | `"success"`, `"all_failed"` |
+| `target_url` | string | Selected target URL from load balancer | `"http://server1.com/stream"` |
+| `attempt_count` | int | Number of attempts made | `1`, `3`, `5` |
+| `failover_reason` | string | Reason for failover | `"timeout"`, `"404_error"` |
+
+### Performance Fields
+These fields capture performance metrics:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `latency` | time.Duration | Network latency | `time.Millisecond * 50` |
+| `bytes_transferred` | int64 | Number of bytes transferred | `1048576` |
+| `response_size` | int64 | Size of response in bytes | `2048` |
+| `request_size` | int64 | Size of request in bytes | `512` |
+
+### System Fields
+These fields capture system-level information:
+
+| Field Name | Type | Description | Example |
+|------------|------|-------------|---------|
+| `memory_usage` | int64 | Memory usage in bytes | `67108864` |
+| `cpu_usage` | float64 | CPU usage percentage | `75.5` |
+| `goroutine_count` | int | Number of active goroutines | `25` |
+
 ## Common Patterns by Component
 
 ### Load Balancer Logs
@@ -105,7 +177,7 @@ fields := logger.NewStandardFields().
     WithAttemptCount(attemptNum).
     WithStreamID(streamID)
 
-logger.InfoEvent().ApplyFields(fields).Msg("Trying URL")
+logger.Default.WithStandardFields(fields).InfoEvent().Msg("Trying URL")
 ```
 
 ### Stream Handler Logs
@@ -118,7 +190,7 @@ fields := logger.NewStandardFields().
     WithClientIP(clientIP).
     WithClientCount(newCount)
 
-logger.InfoEvent().ApplyFields(fields).Msg("Client connected")
+logger.Default.WithStandardFields(fields).InfoEvent().Msg("Client connected")
 ```
 
 ### HTTP Handler Logs
@@ -132,7 +204,7 @@ fields := logger.NewStandardFields().
     WithURL(r.URL.String()).
     WithClientIP(r.RemoteAddr)
 
-logger.InfoEvent().ApplyFields(fields).Msg("Processing request")
+logger.Default.WithStandardFields(fields).InfoEvent().Msg("Processing request")
 ```
 
 ## Migration Examples
@@ -188,3 +260,5 @@ When adding new standardized fields:
 - [Field Standards Specification](logger/field_standards.md) - Detailed technical specification
 - [Logger Enhancement Plan](logger_enhancement_plan_enhanced.md) - Overall logging strategy
 - [Logging Enhancement Summary](logging_enhancement_summary_enhanced.md) - Implementation overview
+- [Logging Guide](logger/logging_guide.md) - Detailed usage guide
+- [Migration Guide](logger/migration_guide.md) - How to migrate from old logging
