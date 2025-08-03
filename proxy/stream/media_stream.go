@@ -204,12 +204,18 @@ func (h *StreamHandler) HandleStream(
 	cleanup := func() {
 		h.coordinator.UnregisterClient()
 		currentCount := atomic.LoadInt32(&h.coordinator.ClientCount)
-		h.logger.Debugf("Client unregistered: %s, remaining: %d", remoteAddr, currentCount)
+		h.logger.DebugEvent().
+			Str("component", "StreamHandler").
+			Str("client_ip", remoteAddr).
+			Int("remaining_clients", int(currentCount)).
+			Msg("Client unregistered")
 
 		if currentCount == 0 {
 			h.coordinator.WriterCtxMu.Lock()
 			if h.coordinator.WriterCancel != nil {
-				h.logger.Debug("Stopping writer - no clients remaining")
+				h.logger.DebugEvent().
+					Str("component", "StreamHandler").
+					Msg("Stopping writer - no clients remaining")
 				h.coordinator.WriterCancel()
 				h.coordinator.WriterCancel = nil
 				h.coordinator.WriterCtx = nil
@@ -242,7 +248,10 @@ func (h *StreamHandler) HandleStream(
 	go func() {
 		select {
 		case <-ctx.Done():
-			h.logger.Debugf("Client context cancelled: %s", remoteAddr)
+			h.logger.DebugEvent().
+				Str("component", "StreamHandler").
+				Str("client_ip", remoteAddr).
+				Msg("Client context cancelled")
 			cancel()
 		case <-done:
 			return
@@ -252,7 +261,10 @@ func (h *StreamHandler) HandleStream(
 	for {
 		select {
 		case <-readerCtx.Done():
-			h.logger.Debugf("Reader context cancelled for client: %s", remoteAddr)
+			h.logger.DebugEvent().
+				Str("component", "StreamHandler").
+				Str("client_ip", remoteAddr).
+				Msg("Reader context cancelled for client")
 			return StreamResult{bytesWritten, readerCtx.Err(), proxy.StatusClientClosed}
 
 		default:

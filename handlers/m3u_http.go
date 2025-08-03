@@ -45,7 +45,10 @@ func NewM3UHTTPHandler(logger logger.Logger, processedPath string) *M3UHTTPHandl
 func (h *M3UHTTPHandler) loadCredentials() {
 	// Note: This method is called during initialization, so we can't add correlation ID yet
 	credsStr := os.Getenv("CREDENTIALS")
-	h.logger.Debugf("Loading credentials from environment variable. Length: %d", len(credsStr))
+	h.logger.DebugEvent().
+		Str("component", "M3UHTTPHandler").
+		Int("credentials_length", len(credsStr)).
+		Msg("Loading credentials from environment variable")
 
 	if credsStr == "" || strings.ToLower(credsStr) == "none" {
 		h.logger.InfoEvent().
@@ -71,11 +74,18 @@ func (h *M3UHTTPHandler) loadCredentials() {
 	for i, cred := range creds {
 		// Log credential info without sensitive data
 		if cred.Expiration.IsZero() {
-			h.logger.Debugf("Credential %d: username=%s, password=(redacted), expiration=none",
-				i+1, cred.Username)
+			h.logger.DebugEvent().
+				Str("component", "M3UHTTPHandler").
+				Int("credential_index", i+1).
+				Str("username", cred.Username).
+				Msg("Credential loaded with no expiration")
 		} else {
-			h.logger.Debugf("Credential %d: username=%s, password=(redacted), expiration=%s",
-				i+1, cred.Username, cred.Expiration.Format(time.RFC3339))
+			h.logger.DebugEvent().
+				Str("component", "M3UHTTPHandler").
+				Int("credential_index", i+1).
+				Str("username", cred.Username).
+				Time("expiration", cred.Expiration).
+				Msg("Credential loaded with expiration")
 		}
 		h.credentials[strings.ToLower(cred.Username)] = cred
 	}

@@ -26,7 +26,10 @@ func (c *StreamCoordinator) StartMediaWriter(ctx context.Context, lbResult *load
 	c.WriterRespHeader.Store(nil)
 	c.respHeaderSet = make(chan struct{})
 
-	c.logger.Debug("StartMediaWriter: Beginning read loop")
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("operation", "start_media_writer").
+		Msg("Beginning read loop")
 
 	c.cm.UpdateConcurrency(lbResult.Index, true)
 	defer c.cm.UpdateConcurrency(lbResult.Index, false)
@@ -46,7 +49,10 @@ func (c *StreamCoordinator) StartMediaWriter(ctx context.Context, lbResult *load
 	if err != nil {
 		switch err {
 		case ctx.Err():
-			c.logger.Debug("StartWriter: Context cancelled")
+			c.logger.DebugEvent().
+				Str("component", "StreamCoordinator").
+				Str("operation", "start_media_writer").
+				Msg("Context cancelled")
 			c.writeError(ctx.Err(), proxy.StatusClientClosed)
 		case fmt.Errorf("stream timeout: no new segments"):
 			c.writeError(nil, proxy.StatusServerError)

@@ -44,7 +44,10 @@ func (c *StreamCoordinator) StartHLSWriter(ctx context.Context, lbResult *loadba
 	c.WriterRespHeader.Store(nil)
 	c.respHeaderSet = make(chan struct{})
 	c.m3uHeaderSet.Store(false)
-	c.logger.Debug("StartHLSWriter: Beginning read loop")
+	c.logger.DebugEvent().
+		Str("component", "StreamCoordinator").
+		Str("operation", "start_hls_writer").
+		Msg("Beginning read loop")
 
 	c.cm.UpdateConcurrency(lbResult.Index, true)
 	defer c.cm.UpdateConcurrency(lbResult.Index, false)
@@ -62,14 +65,21 @@ func (c *StreamCoordinator) StartHLSWriter(ctx context.Context, lbResult *loadba
 		select {
 		case <-ctx.Done():
 			if lastErr == nil {
-				c.logger.Debug("StartHLSWriter: Context cancelled")
+				c.logger.DebugEvent().
+					Str("component", "StreamCoordinator").
+					Str("operation", "start_hls_writer").
+					Msg("Context cancelled")
 				c.writeError(ctx.Err(), proxy.StatusClientClosed)
 			}
 			return
 		case <-ticker.C:
 			// Check timeout first
 			if time.Since(lastChangeTime) > time.Duration(c.config.TimeoutSeconds)*time.Second+pollInterval {
-				c.logger.Debug("No sequence changes detected within timeout period")
+				c.logger.DebugEvent().
+					Str("component", "StreamCoordinator").
+					Str("operation", "start_hls_writer").
+					Dur("time_since_last_change", time.Since(lastChangeTime)).
+					Msg("No sequence changes detected within timeout period")
 				c.writeError(fmt.Errorf("stream timeout: no new segments"), proxy.StatusEOF)
 				return
 			}
@@ -113,7 +123,11 @@ func (c *StreamCoordinator) StartHLSWriter(ctx context.Context, lbResult *loadba
 				if math.Abs(float64(jitter-pollInterval)) > float64(pollInterval)*0.1 {
 					pollInterval = jitter
 					ticker.Reset(pollInterval)
-					c.logger.Debugf("Updated polling interval to %v", pollInterval)
+					c.logger.DebugEvent().
+						Str("component", "StreamCoordinator").
+						Str("operation", "start_hls_writer").
+						Dur("new_polling_interval", pollInterval).
+						Msg("Updated polling interval")
 				}
 			}
 

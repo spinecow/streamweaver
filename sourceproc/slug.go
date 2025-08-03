@@ -24,7 +24,11 @@ func init() {
 		New: func() interface{} {
 			encoder, err := zstd.NewWriter(nil)
 			if err != nil {
-				logger.Default.Debugf("Error creating zstd encoder: %v", err)
+				logger.Default.DebugEvent().
+					Str("component", "SourceProcessor").
+					Str("operation", "init_encoder_pool").
+					Err(err).
+					Msg("Error creating zstd encoder")
 				return nil
 			}
 			return encoder
@@ -35,7 +39,11 @@ func init() {
 		New: func() interface{} {
 			decoder, err := zstd.NewReader(nil)
 			if err != nil {
-				logger.Default.Debugf("Error creating zstd decoder: %v", err)
+				logger.Default.DebugEvent().
+					Str("component", "SourceProcessor").
+					Str("operation", "init_decoder_pool").
+					Err(err).
+					Msg("Error creating zstd decoder")
 				return nil
 			}
 			return decoder
@@ -46,7 +54,11 @@ func init() {
 func EncodeSlug(stream *StreamInfo) string {
 	jsonData, err := json.Marshal(stream)
 	if err != nil {
-		logger.Default.Debugf("Error json marshal for slug: %v", err)
+		logger.Default.DebugEvent().
+			Str("component", "SourceProcessor").
+			Str("operation", "encode_slug").
+			Err(err).
+			Msg("Error json marshal for slug")
 		return ""
 	}
 
@@ -58,7 +70,11 @@ func EncodeSlug(stream *StreamInfo) string {
 	encoder.Reset(&compressedData)
 
 	if _, err := encoder.Write(jsonData); err != nil {
-		logger.Default.Debugf("Error zstd compression for slug: %v", err)
+		logger.Default.DebugEvent().
+			Str("component", "SourceProcessor").
+			Str("operation", "encode_slug").
+			Err(err).
+			Msg("Error zstd compression for slug")
 		return ""
 	}
 	encoder.Close()

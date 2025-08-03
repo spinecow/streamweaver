@@ -52,7 +52,10 @@ func (r *StreamRegistry) GetOrCreateCoordinator(streamID string, actualURL strin
 		})
 		
 		if foundCoord != nil {
-			r.logger.Debugf("Found existing coordinator for actual URL: %s", actualURL)
+			r.logger.DebugEvent().
+				Str("component", "StreamRegistry").
+				Str("actual_url", actualURL).
+				Msg("Found existing coordinator for actual URL")
 			return foundCoord
 		}
 	}

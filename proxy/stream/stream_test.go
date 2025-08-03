@@ -77,7 +77,9 @@ func newMockHLSServer() *mockHLSServer {
 
 		select {
 		case <-done:
-			m.logger.Debug("Request context cancelled")
+			m.logger.DebugEvent().
+				Str("component", "mockHLSServer").
+				Msg("Request context cancelled")
 			return
 		default:
 			m.handleRequest(w, r)
@@ -88,7 +90,10 @@ func newMockHLSServer() *mockHLSServer {
 }
 
 func (m *mockHLSServer) handleRequest(w http.ResponseWriter, r *http.Request) {
-	m.logger.Debugf("Mock server received request: %s", r.URL.Path)
+	m.logger.DebugEvent().
+		Str("component", "mockHLSServer").
+		Str("url_path", r.URL.Path).
+		Msg("Mock server received request")
 
 	switch {
 	case strings.HasSuffix(r.URL.Path, ".m3u8"):

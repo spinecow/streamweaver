@@ -23,8 +23,16 @@ var (
 
 // parseLine parses a single M3U line into a StreamInfo
 func parseLine(line string, nextLine *LineDetails, m3uIndex string) *StreamInfo {
-	logger.Default.Debugf("Parsing line: %s", line)
-	logger.Default.Debugf("Next line: %s", nextLine.Content)
+	logger.Default.DebugEvent().
+		Str("component", "SourceProcessor").
+		Str("operation", "parse_line").
+		Str("line_content", line).
+		Msg("Parsing line")
+	logger.Default.DebugEvent().
+		Str("component", "SourceProcessor").
+		Str("operation", "parse_line").
+		Str("next_line_content", nextLine.Content).
+		Msg("Next line")
 
 	cleanUrl := strings.TrimSpace(nextLine.Content)
 	stream := &StreamInfo{
@@ -68,7 +76,11 @@ func parseLine(line string, nextLine *LineDetails, m3uIndex string) *StreamInfo 
 	encodedUrl := base64.StdEncoding.EncodeToString([]byte(cleanUrl))
 
 	if stream.Title == "" {
-		logger.Default.Debugf("Stream missing title, skipping: %s", line)
+		logger.Default.DebugEvent().
+			Str("component", "SourceProcessor").
+			Str("operation", "parse_line").
+			Str("line_content", line).
+			Msg("Stream missing title, skipping")
 		return nil
 	}
 
@@ -88,11 +100,22 @@ func parseLine(line string, nextLine *LineDetails, m3uIndex string) *StreamInfo 
 	if _, err := os.Stat(filePath); os.IsNotExist(err) {
 		// Create shard directory if it doesn't exist
 		if err := os.MkdirAll(shardDir, os.ModePerm); err != nil {
-			logger.Default.Debugf("Error creating shard directory %s: %v", shardDir, err)
+			logger.Default.DebugEvent().
+				Str("component", "SourceProcessor").
+				Str("operation", "parse_line").
+				Str("shard_dir", shardDir).
+				Err(err).
+				Msg("Error creating shard directory")
 		}
 		content := fmt.Sprintf("%d:::%s", nextLine.LineNum, encodedUrl)
 		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-			logger.Default.Debugf("Error indexing stream: %s (#%s) -> %v", stream.Title, m3uIndex, err)
+			logger.Default.DebugEvent().
+				Str("component", "SourceProcessor").
+				Str("operation", "parse_line").
+				Str("stream_title", stream.Title).
+				Str("m3u_index", m3uIndex).
+				Err(err).
+				Msg("Error indexing stream")
 		}
 		if stream.URLs == nil {
 			stream.URLs = xsync.NewMapOf[string, map[string]string]()
