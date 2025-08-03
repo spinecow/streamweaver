@@ -202,7 +202,7 @@ func (p *M3UProcessor) processStreams(r *http.Request) chan error {
 	if r != nil {
 		baseURL = utils.DetermineBaseURL(r)
 	} else {
-		baseURL = "http://localhost" // Default for tests
+		baseURL = utils.DetermineBaseURL(nil)
 	}
 
 	// Increase channel buffer sizes
